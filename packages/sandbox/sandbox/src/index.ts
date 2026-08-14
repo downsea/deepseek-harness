@@ -42,6 +42,18 @@ export interface SandboxExecutionPolicy {
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
   /**
+   * Additional absolute directory roots `workspace-write` may write under,
+   * beyond the workspace root and the backend's temp areas (deployment-level
+   * state directories outside the workspace). Consumed only under
+   * `workspace-write`: `read-only` stays fail-safe and grants none of them,
+   * and `danger-full-access` bypasses confinement entirely. A listed root may
+   * not exist yet at confinement time; a backend must not fail the launch for
+   * a missing root (it is granted once it exists). Omitted means the mode's
+   * standard roots only; like {@link workspaceRoot}, the field is carried
+   * even under modes that do not consume it.
+   */
+  writablePaths?: readonly string[]
+  /**
    * Opaque identity of the calling session (the branded `dsh-session`
    * SessionId). Backends key per-session state off it (e.g. windows-acl gives
    * each live session/workspace pair a random private temp directory and SID,

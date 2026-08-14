@@ -12,6 +12,7 @@ Filesystem tools, one-shot bash commands, and terminal sessions may enforce the 
 
 - `mode` — the deployment default `SandboxMode` (`read-only` / `workspace-write` / `danger-full-access`), validated at load. Default `read-only` (fail-safe).
 - `workspaceRoot` — the fallback directory `workspace-write` may write under for agentless calls or sessions without a cwd. Default `process.cwd()`, resolved to its absolute filesystem identity either way. A normal agent call uses its session header's immutable `cwd` instead.
+- `writablePaths` — additional directory roots `workspace-write` may write under, beyond the session workspace and platform temp areas (deployment-level state directories outside every workspace, such as a hook's `~/.local/state` home). Default none. Relative entries resolve against `process.cwd()` at load; every resolved policy carries the same absolute roots, with no per-session override. Only `workspace-write` consumes them — `read-only` stays fail-safe and grants none of them.
 
 ## API
 
@@ -48,6 +49,12 @@ Current DSH file policy: read-only. Any available operation enforced by the DSH 
 Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable.
 ```
 
+##### Workspace-write with configured `writablePaths`
+
+```markdown
+Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable. Additional writable roots: "<root>", …
+```
+
 ##### Danger-full-access
 
 ```markdown
@@ -56,7 +63,7 @@ Current DSH file policy: danger-full-access. The DSH file sandbox does not restr
 
 #### Token effect
 
-One concise durable context message on the first request and each effective policy change; unchanged requests add nothing. `workspace-write` carries only the canonical session workspace path; platform-specific temporary paths are summarized without adding host-dependent bytes.
+One concise durable context message on the first request and each effective policy change; unchanged requests add nothing. `workspace-write` carries the canonical session workspace path plus any configured `writablePaths`; without that option its text is byte-identical to the unconfigured render, and the `read-only` and `danger-full-access` texts never carry the roots. Platform-specific temporary paths are summarized without adding host-dependent bytes.
 
 #### KV Cache effect
 
@@ -64,6 +71,6 @@ The stable system prompt remains byte-identical across mode changes. A changed f
 
 ## Known Limitations and Deferred Work
 
-- **One primary workspace root per session** — policy resolves `SessionHeader.cwd`; extra writable roots are not part of `SandboxExecutionPolicy`.
+- **One primary workspace root per session** — policy resolves `SessionHeader.cwd`; `writablePaths` widens the deployment, never one session (no per-session override).
 - **File-effect modes only** — `SandboxMode` governs file effects; network and process policy are outside its vocabulary, so no knob here restricts them.
 - **Temporary areas are deliberately summarized** — enforcing backends grant different platform temporary areas, which are selected after policy resolution and therefore cannot be enumerated truthfully in the current context.

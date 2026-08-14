@@ -40,7 +40,7 @@ type SandboxEnforcement = 'full' | 'partial'
 
 ## Per-call policy
 
-The complete execution policy is resolved and carried per capability call. It includes `danger-full-access` so a consumer can resolve policy once before deciding whether to bypass confinement. Normal tool calls derive `workspaceRoot` from the calling session's immutable cwd; deployment configuration is the agentless fallback. The root is canonicalized with filesystem semantics before lexical normalization, so a cwd containing `symlink/..` identifies the directory where a spawned process actually runs.
+The complete execution policy is resolved and carried per capability call. It includes `danger-full-access` so a consumer can resolve policy once before deciding whether to bypass confinement. Normal tool calls derive `workspaceRoot` from the calling session's immutable cwd; deployment configuration is the agentless fallback. The root is canonicalized with filesystem semantics before lexical normalization, so a cwd containing `symlink/..` identifies the directory where a spawned process actually runs. Deployment-configured `writablePaths` ride the same policy on every call: additional absolute roots that only `workspace-write` consumes, with no per-session override.
 
 ```ts type-equiv
 /**
@@ -53,6 +53,18 @@ interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /**
+   * Additional absolute directory roots `workspace-write` may write under,
+   * beyond the workspace root and the backend's temp areas (deployment-level
+   * state directories outside the workspace). Consumed only under
+   * `workspace-write`: `read-only` stays fail-safe and grants none of them,
+   * and `danger-full-access` bypasses confinement entirely. A listed root may
+   * not exist yet at confinement time; a backend must not fail the launch for
+   * a missing root (it is granted once it exists). Omitted means the mode's
+   * standard roots only; like {@link workspaceRoot}, the field is carried
+   * even under modes that do not consume it.
+   */
+  writablePaths?: readonly string[]
   /**
    * Opaque identity of the calling session (the branded `dsh-session`
    * SessionId). Backends key per-session state off it (e.g. windows-acl gives
@@ -184,7 +196,7 @@ Abstract process-sandbox service. confine must return enforcing argv or fail clo
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
 
-Source: [`packages/sandbox/sandbox/src/index.ts:158`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:170`](../../packages/sandbox/sandbox/src/index.ts)
 
 <a id="ctxsandboxpolicy--sandboxpolicyservice"></a>
 
@@ -198,9 +210,11 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
  * mode outranks the session's last `sandbox/mode` event, which outranks the
  * deployment default. A session cwd is its workspace-write boundary; the
  * configured root is the fallback for agentless calls and sessions without a
- * cwd.
+ * cwd. Configured `writablePaths` are deployment-level: every call carries
+ * the same absolute roots, with no per-session override.
  * @param request - optional session and approved mode override.
- * @returns the fully resolved per-call mode and absolute workspace root.
+ * @returns the fully resolved per-call mode and absolute workspace root,
+ *   plus the configured additional writable roots when any exist.
  */
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
 
@@ -214,5 +228,5 @@ overrideOf(session: Session): SandboxMode | undefined
 
 Types: [Session](session.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:91`](../../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:104`](../../packages/sandbox/sandbox-policy/src/index.ts)
 <!-- END GENERATED cordis-surface -->
