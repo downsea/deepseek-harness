@@ -23,6 +23,8 @@ import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from '../s
 
 const RO: SandboxPolicy = { mode: 'read-only', workspaceRoot: '/ws' }
 const WW: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: '/ws' }
+const RO_EXTRA: SandboxPolicy = { mode: 'read-only', workspaceRoot: '/ws', writablePaths: ['/state/mem'] }
+const WW_EXTRA: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: '/ws', writablePaths: ['/state/mem', '/share/mem'] }
 
 async function setup(config: Config = {}, internals: LocalSandboxProvider['internals'] = {}) {
   const ctx = new Context()
@@ -73,6 +75,20 @@ describe('profile dialects', () => {
     ])
   })
 
+  it('bwrap workspace-write appends one --bind-try pair per additional writable root', () => {
+    // --bind-try, not --bind: a root missing at launch is skipped instead of
+    // failing the wrap, and a later confined execution binds it once it exists.
+    expect(bwrapProfileArgs(WW_EXTRA)).toEqual([
+      '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent',
+      '--tmpfs', '/tmp', '--bind', '/ws', '/ws',
+      '--bind-try', '/state/mem', '/state/mem', '--bind-try', '/share/mem', '/share/mem',
+    ])
+  })
+
+  it('bwrap read-only ignores additional writable roots (fail-safe)', () => {
+    expect(bwrapProfileArgs(RO_EXTRA)).toEqual(bwrapProfileArgs(RO))
+  })
+
   it('landlock read-only: readable tree plus a writable /dev/null, nothing else', () => {
     // /dev/null specifically, NOT /dev: a whole-/dev grant would let confined
     // commands write real host paths beneath it (/dev/shm) under read-only.
@@ -81,6 +97,17 @@ describe('profile dialects', () => {
 
   it('landlock workspace-write: adds the host /tmp and the workspace root', () => {
     expect(landlockProfileArgs(WW)).toEqual(['--ro', '/', '--rw', '/dev/null', '--rw', '/tmp', '--rw', '/ws'])
+  })
+
+  it('landlock workspace-write grants each additional writable root read-write', () => {
+    expect(landlockProfileArgs(WW_EXTRA)).toEqual([
+      '--ro', '/', '--rw', '/dev/null', '--rw', '/tmp', '--rw', '/ws',
+      '--rw', '/state/mem', '--rw', '/share/mem',
+    ])
+  })
+
+  it('landlock read-only ignores additional writable roots (fail-safe)', () => {
+    expect(landlockProfileArgs(RO_EXTRA)).toEqual(landlockProfileArgs(RO))
   })
 
   it('seatbelt read-only: allow-default with every file write denied except the /dev/null literal', () => {
@@ -374,6 +401,17 @@ describe('the default seatbelt probe (sandbox-exec contract)', () => {
     const { sandbox } = await setup({}, { chain: ['bwrap', 'seatbelt'], probeBwrap: () => false, seatbeltExec: fakeSeatbeltExec(1) })
     expect(() => sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
   })
+
+  it('warns about unconsumed writablePaths only for a workspace-write policy that carries some', async () => {
+    const { ctx, sandbox } = await setup({}, { platform: 'darwin', seatbeltExec: fakeSeatbeltExec(0) })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    sandbox.confine(['true'], RO_EXTRA)
+    sandbox.confine(['true'], WW)
+    sandbox.confine(['true'], { ...WW, writablePaths: [] })
+    expect(warn).not.toHaveBeenCalled()
+    sandbox.confine(['true'], WW_EXTRA)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('seatbelt backend does not consume policy.writablePaths'))
+  })
 })
 
 describe('the windows-acl probe (runner invocation contract)', () => {
@@ -436,6 +474,20 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeBwrap: () => true, windowsAclRunnerArgs: [] })
     const confined = sandbox.confine(['true'], RO)
     expect(confined.argv[0]).toBe('bwrap')
+  })
+
+  it('warns once per provider when wrapping a workspace-write policy whose writablePaths it does not consume', async () => {
+    const { ctx, sandbox } = await setup({}, {
+      chain: ['windows-acl', 'bwrap'],
+      probeWindowsAcl: () => true,
+      windowsAclRunnerArgs: ['node', 'windows-acl-runner.js'],
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const confined = sandbox.confine(['true'], WW_EXTRA)
+    expect(confined.argv).not.toContain('/state/mem')
+    sandbox.confine(['true'], WW_EXTRA)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('windows-acl backend does not consume policy.writablePaths'))
   })
 
   it('prefers the built lib/runner.js entry when the resolved file exists', async () => {

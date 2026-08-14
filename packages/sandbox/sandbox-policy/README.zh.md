@@ -12,6 +12,7 @@
 
 - `mode`：部署默认 `SandboxMode`（`read-only`／`workspace-write`／`danger-full-access`），加载时验证。默认为 `read-only`（故障安全）。
 - `workspaceRoot`：无 agent（智能体）的调用或没有 cwd 的会话在 `workspace-write` 下可写入的回退目录。默认为 `process.cwd()`；无论显式配置还是采用默认值，都会解析为其绝对文件系统标识。普通 agent 调用改用其会话头中不可变的 `cwd`。
+- `writablePaths`：`workspace-write` 在会话工作区与平台临时区域之外还可写入的额外目录根——位于所有工作区之外的部署级状态目录，例如某个 hook 的 `~/.local/state` 目录。默认为空。相对条目在加载时相对 `process.cwd()` 解析；每份解析出的策略携带同一组绝对根，无逐会话覆盖。只有 `workspace-write` 消费它们——`read-only` 保持故障安全，不授予其中任何一个。
 
 ## 接口
 
@@ -48,6 +49,12 @@ Current DSH file policy: read-only. Any available operation enforced by the DSH 
 Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable.
 ```
 
+##### 配置了 `writablePaths` 的工作区写入
+
+```markdown
+Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable. Additional writable roots: "<root>", …
+```
+
 ##### 完全访问
 
 ```markdown
@@ -56,7 +63,7 @@ Current DSH file policy: danger-full-access. The DSH file sandbox does not restr
 
 #### Token 影响
 
-首次请求和有效策略每次变化时增加一条简洁的持久上下文消息；未变化的请求不增加内容。`workspace-write` 只携带规范化的会话工作区路径；平台特定的临时路径会以摘要表述，不会加入依赖主机的字节。
+首次请求和有效策略每次变化时增加一条简洁的持久上下文消息；未变化的请求不增加内容。`workspace-write` 携带规范化的会话工作区路径以及配置的任何 `writablePaths`；未配置该选项时其文本与从前的渲染逐字节相同，且 `read-only` 与 `danger-full-access` 文本绝不携带这些根。平台特定的临时路径会以摘要表述，不会加入依赖主机的字节。
 
 #### KV Cache 影响
 
@@ -64,6 +71,6 @@ Current DSH file policy: danger-full-access. The DSH file sandbox does not restr
 
 ## 已知限制与暂缓事项
 
-- **每个会话只有一个主要工作区根目录**：策略解析 `SessionHeader.cwd`；额外可写根目录不属于 `SandboxExecutionPolicy`。
+- **每个会话只有一个主要工作区根目录**：策略解析 `SessionHeader.cwd`；`writablePaths` 拓宽的是部署，而非单个会话（无逐会话覆盖）。
 - **仅限文件操作模式**：`SandboxMode` 管控文件操作；网络和进程策略不在其词汇中，因此这里没有限制它们的旋钮。
 - **有意概述临时区域**：强制执行后端会授予不同的平台临时区域，这些区域在策略解析后才会选定，因此无法在当前上下文中如实枚举。

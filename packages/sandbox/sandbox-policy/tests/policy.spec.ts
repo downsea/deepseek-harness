@@ -14,7 +14,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SandboxPolicyService, { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
-async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {}) {
+async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string; writablePaths?: string[] } = {}) {
   const ctx = new Context()
   await ctx.plugin(SandboxPolicyService, config)
   return ctx
@@ -118,6 +118,31 @@ describe('SandboxPolicyService', () => {
     })
   })
 
+  it('resolves configured writablePaths absolute and carries them on every resolved policy', async () => {
+    const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback', writablePaths: ['/state/../state/mem', 'relative-state/mem'] })
+    const expected = [resolve('/state/../state/mem'), resolve(process.cwd(), 'relative-state/mem')]
+    expect(ctx.sandboxPolicy.writablePaths).toEqual(expected)
+    expect(ctx.sandboxPolicy.resolve()).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/fallback'),
+      writablePaths: expected,
+    })
+    expect(ctx.sandboxPolicy.resolve({ session: session('sess-extra-roots', '/projects/current') })).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/projects/current'),
+      writablePaths: expected,
+      sessionId: 'sess-extra-roots',
+    })
+  })
+
+  it('omits writablePaths from the resolved policy when unconfigured or configured empty', async () => {
+    const unconfigured = await mounted({ workspaceRoot: '/fallback' })
+    expect(unconfigured.sandboxPolicy.writablePaths).toEqual([])
+    expect(unconfigured.sandboxPolicy.resolve()).not.toHaveProperty('writablePaths')
+    const empty = await mounted({ workspaceRoot: '/fallback', writablePaths: [] })
+    expect(empty.sandboxPolicy.resolve()).not.toHaveProperty('writablePaths')
+  })
+
   it('uses the configured root when a session has no cwd', async () => {
     const ctx = await mounted({ workspaceRoot: '/fallback' })
     expect(ctx.sandboxPolicy.resolve({ session: session('sess-no-cwd') }).workspaceRoot).toBe(resolve('/fallback'))
@@ -142,7 +167,7 @@ describe('SandboxPolicyService', () => {
 })
 
 describe('sandbox:policy request context', () => {
-  async function promptMounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {}): Promise<Context> {
+  async function promptMounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string; writablePaths?: string[] } = {}): Promise<Context> {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(SandboxPolicyService, config)
@@ -159,6 +184,20 @@ describe('sandbox:policy request context', () => {
     } as const
 
     expect(await policyContext(ctx, session(`sess-${mode}`, '/projects/../projects/current'))).toBe(expected[mode])
+  })
+
+  it('appends the additional writable roots to the workspace-write context', async () => {
+    const ctx = await promptMounted({ mode: 'workspace-write', workspaceRoot: '/fallback', writablePaths: ['/state/mem', '/share/mem'] })
+    expect(await policyContext(ctx, session('sess-extra-render', '/projects/current'))).toBe(
+      `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(resolve('/projects/current'))}. Some platform temporary areas may also be writable. Additional writable roots: ${JSON.stringify(resolve('/state/mem'))}, ${JSON.stringify(resolve('/share/mem'))}.`,
+    )
+  })
+
+  it('keeps the read-only context free of configured writable roots (fail-safe)', async () => {
+    const ctx = await promptMounted({ mode: 'read-only', workspaceRoot: '/fallback', writablePaths: ['/state/mem'] })
+    expect(await policyContext(ctx, session('sess-ro-extra', '/projects/current'))).toBe(
+      'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.',
+    )
   })
 
   it('keeps the complete rendered prompt byte-stable across TMPDIR changes', async () => {
