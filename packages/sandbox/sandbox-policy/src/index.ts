@@ -29,8 +29,8 @@ import { effectiveSandboxMode } from './session-mode.ts'
 
 export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 
-/** Resolve filesystem identity before lexical normalization can erase symlink-sensitive components. */
-function resolveWorkspaceRoot(path: string): string {
+/** Resolve a configured or session root's filesystem identity before lexical normalization can erase symlink-sensitive components. */
+function resolveRoot(path: string): string {
   return resolvePath(canonicalPath(path))
 }
 
@@ -39,8 +39,12 @@ function renderPolicyContext(policy: SandboxExecutionPolicy): string {
   switch (policy.mode) {
     case 'read-only':
       return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.'
-    case 'workspace-write':
-      return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
+    case 'workspace-write': {
+      const base = `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
+      const extra = policy.writablePaths ?? []
+      if (extra.length === 0) return base
+      return `${base} Additional writable roots: ${extra.map(root => JSON.stringify(root)).join(', ')}.`
+    }
     case 'danger-full-access':
       return 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.'
     /* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
@@ -72,6 +76,15 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
+  /**
+   * Additional directory roots `workspace-write` may write under, beyond the
+   * session workspace and platform temp areas — deployment-level state
+   * directories outside every workspace, such as a hook's `~/.local/state`
+   * home (default: none). Relative entries resolve against `process.cwd()`
+   * at load. Only `workspace-write` consumes them: `read-only` stays
+   * fail-safe and grants none of them.
+   */
+  writablePaths?: string[]
 }
 
 /** Inputs that select the sandbox policy for one capability call. */
@@ -95,19 +108,24 @@ export class SandboxPolicyService extends Service {
     // No schema default: process.cwd() is resolved in the constructor so the
     // stored root is always absolute regardless of how it was supplied.
     workspaceRoot: z.string(),
+    writablePaths: z.array(z.string()),
   })
 
   /** The deployment default mode — the fallback beneath a session override. */
   readonly defaultMode: SandboxMode
   /** The absolute `workspace-write` fallback root for calls without a session cwd. */
   readonly workspaceRoot: string
+  /** Absolute additional `workspace-write` roots (deployment-level; empty when unconfigured). */
+  readonly writablePaths: readonly string[]
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sandboxPolicy')
-    // schemastery (static Config) already filled `mode`; the cast records that
-    // runtime fact. `workspaceRoot` has NO schema default, so its fallback to
-    // the process cwd is real branching, resolved absolute either way.
+    // schemastery (static Config) already filled `mode` and `writablePaths`
+    // (arrays default to empty); the casts record those runtime facts.
+    // `workspaceRoot` has NO schema default, so its fallback to the process
+    // cwd is real branching, resolved absolute either way.
     this.defaultMode = config.mode as SandboxMode
-    this.workspaceRoot = resolveWorkspaceRoot(config.workspaceRoot ?? process.cwd())
+    this.workspaceRoot = resolveRoot(config.workspaceRoot ?? process.cwd())
+    this.writablePaths = (config.writablePaths as string[]).map(resolveRoot)
 
     ctx.inject(['systemPrompt'], (scope: Context) => {
       scope.systemPrompt.context({
@@ -128,15 +146,18 @@ export class SandboxPolicyService extends Service {
    * mode outranks the session's last `sandbox/mode` event, which outranks the
    * deployment default. A session cwd is its workspace-write boundary; the
    * configured root is the fallback for agentless calls and sessions without a
-   * cwd.
+   * cwd. Configured `writablePaths` are deployment-level: every call carries
+   * the same absolute roots, with no per-session override.
    * @param request - optional session and approved mode override.
-   * @returns the fully resolved per-call mode and absolute workspace root.
+   * @returns the fully resolved per-call mode and absolute workspace root,
+   *   plus the configured additional writable roots when any exist.
    */
   resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy {
     const { session } = request
     return {
       mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
-      workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
+      workspaceRoot: resolveRoot(session?.header.cwd ?? this.workspaceRoot),
+      ...this.writablePaths.length === 0 ? {} : { writablePaths: this.writablePaths },
       ...session === undefined ? {} : { sessionId: session.id },
     }
   }

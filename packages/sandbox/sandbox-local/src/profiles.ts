@@ -9,7 +9,11 @@ import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 
 /**
- * Build the bwrap profile arguments for one file-effect policy.
+ * Build the bwrap profile arguments for one file-effect policy. Under
+ * `workspace-write`, each additional `writablePaths` root is a `--bind-try`
+ * pair — never `--bind`: a listed root may not exist yet, and bwrap skips a
+ * missing `--bind-try` source instead of failing the launch (the next
+ * confined execution binds it once it exists).
  * @param policy - file-effect policy to express as bwrap mounts.
  * @returns profile arguments before the trailing separator and command argv.
  */
@@ -18,19 +22,24 @@ export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
   if (policy.mode === 'workspace-write') {
     args.push('--tmpfs', '/tmp')
     args.push('--bind', policy.workspaceRoot, policy.workspaceRoot)
+    for (const root of policy.writablePaths ?? []) {
+      args.push('--bind-try', root, root)
+    }
   }
   return args
 }
 
 /**
- * Build the Landlock launcher grants for one file-effect policy.
+ * Build the Landlock launcher grants for one file-effect policy. Under
+ * `workspace-write`, each additional `writablePaths` root joins the
+ * read-write allow-list alongside the workspace root.
  * @param policy - file-effect policy to express as Landlock allow-list grants.
  * @returns launcher grant arguments before the trailing separator and command argv.
  */
 export function landlockProfileArgs(policy: SandboxPolicy): string[] {
   const readWrite = ['/dev/null']
   if (policy.mode === 'workspace-write') {
-    readWrite.push('/tmp', policy.workspaceRoot)
+    readWrite.push('/tmp', policy.workspaceRoot, ...policy.writablePaths ?? [])
   }
   return landlockGrantArgs({ readOnly: ['/'], readWrite })
 }

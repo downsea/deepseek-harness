@@ -263,6 +263,8 @@ export class LocalSandboxProvider extends SandboxProvider {
   private readonly probeTimeoutMs: number
   /** Cached chain verdict; undefined until the first confined wrap needs it. */
   private selectedRunner: SelectedRunner | 'unavailable' | undefined
+  /** One warning per provider lifetime for writablePaths the selected rung does not consume. */
+  private warnedUnconsumedWritablePaths = false
   /**
    * Server-lifetime write grants (windows-acl rung): the STANDING
    * workspace-root grant per workspace (its ACE is the cross-session reuse
@@ -337,10 +339,29 @@ export class LocalSandboxProvider extends SandboxProvider {
     switch (runner) {
       case 'bwrap': return ['bwrap', ...bwrapProfileArgs(policy)]
       case 'landlock': return [this.landlockLauncher(), ...landlockProfileArgs(policy)]
-      case 'seatbelt': return [this.seatbeltExec(), ...seatbeltProfileArgs(policy)]
-      case 'windows-acl': return this.windowsAclRunnerArgv(policy)
+      case 'seatbelt':
+        this.warnUnconsumedWritablePaths('seatbelt', policy)
+        return [this.seatbeltExec(), ...seatbeltProfileArgs(policy)]
+      case 'windows-acl':
+        this.warnUnconsumedWritablePaths('windows-acl', policy)
+        return this.windowsAclRunnerArgv(policy)
       default: return assertNever(runner)
     }
+  }
+
+  /**
+   * Warn once per provider lifetime when a `workspace-write` policy carries
+   * `writablePaths` the selected rung does not consume: the Seatbelt grant
+   * derives from the shared `writableRoots` allow-list and the windows-acl
+   * runner grants only the workspace and private-temp SIDs, so the configured
+   * additional roots receive no write grant on this host. Enforcement stays
+   * fail-safe (nothing widens); the warning keeps the narrowing loud instead
+   * of silently dropping a configured root.
+   */
+  private warnUnconsumedWritablePaths(runner: 'seatbelt' | 'windows-acl', policy: SandboxPolicy): void {
+    if (this.warnedUnconsumedWritablePaths || policy.mode !== 'workspace-write' || (policy.writablePaths?.length ?? 0) === 0) return
+    this.warnedUnconsumedWritablePaths = true
+    this.ctx.logger.warn(`sandbox-local: the ${runner} backend does not consume policy.writablePaths; the configured additional writable roots receive no write grant on this host`)
   }
 
   /**
