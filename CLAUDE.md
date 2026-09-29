@@ -1,6 +1,12 @@
 # CLAUDE.md
 
+<!-- docs-check: tier=2 -->
+
 Guidance for Claude Code (claude.ai/code) when working in this repo.
+
+> **Size budget: 65536 bytes for `CLAUDE.md` + `AGENTS.md` combined.** Past it the
+> host truncates the tail silently. Keep only entry index / hard rules / criteria here;
+> detail → `docs/` (upstream's) or the ledger, procedures → `.agents/skills/`. Pointers, not prose.
 
 @AGENTS.md
 
@@ -15,15 +21,15 @@ AGENTS.md wins; the sections below only add the host-local half** per
 This repo has its own constitutional system — do **not** create the template's
 default trees here. Template concept → this repo's home:
 
-| Template concept | This repo's home |
-|---|---|
-| Positioning / design philosophy | root `AGENTS.md` (identity line, pre-release stance, Conventions) + [docs/defensive-patterns.md](docs/defensive-patterns.md) |
-| `docs/<proj>-architecture.md` | [docs/architecture.md](docs/architecture.md) (read before changing `packages/`); per-subsystem detail in [docs/subsystems/](docs/subsystems/README.md) |
-| `docs/adr/` (decisions) | `.agents/notes/{proposed,implemented,rejected}/{class}/yyyy-mm-dd-topic.md` Agent Notes (same-PR rule + format gate in [.agents/notes/README.md](.agents/notes/README.md)); `archived/` is frozen history |
-| `docs/research/` | Upstream-worthy: an Agent Note in `proposed/`. Cross-stack (dsh × aeu / atd / mem): `~/code/agent-native-stack/docs/research/` (e.g. `2026-08-14-dsh-deep-study/`, `2026-08-19-dsh-rc7-recheck.md`). Local-only: the issue's Context in `.issues-local/` |
-| `docs/issues/` file tracker | `.issues-local/`（见下节；fork 的 GitHub issues 关闭）；上游通道可用时再 `gh` 上报 |
-| Stable contracts | None until the first tagged release (AGENTS.md "Pre-release stance": `SESSION_FORMAT_VERSION` 0, no compatibility promise) |
-| Doc standard | [docs/AGENTS.md](docs/AGENTS.md) — tiers, one home per fact, bilingual pairing, word budgets |
+| Template concept | This repo's home | Update when |
+|---|---|---|
+| Positioning / design philosophy | root `AGENTS.md` (identity line, pre-release stance, Conventions) + [docs/defensive-patterns.md](docs/defensive-patterns.md) | Upstream's files — they move with the rebase; a new shipped bug class → defensive-patterns in the same PR |
+| `docs/<proj>-architecture.md` | [docs/architecture.md](docs/architecture.md) (read before changing `packages/`); per-subsystem detail in [docs/subsystems/](docs/subsystems/README.md) | Same PR as any `packages/` behaviour or `agent-loop` change |
+| `docs/adr/` (decisions) | `.agents/notes/{proposed,implemented,rejected}/{class}/yyyy-mm-dd-topic.md` Agent Notes (same-PR rule + format gate in [.agents/notes/README.md](.agents/notes/README.md)); `archived/` is frozen history | Every non-trivial change (same PR); lifecycle dir moves when the decision lands or is rejected |
+| `docs/research/` | Upstream-worthy: an Agent Note in `proposed/`. Cross-stack (dsh × aeu / atd / mem): `~/code/agent-native-stack/docs/research/` (e.g. `2026-08-14-dsh-deep-study/`, `2026-08-19-dsh-rc7-recheck.md`). Local-only: the issue's Context in `.issues-local/` | Before non-trivial work (Research → dev) |
+| `docs/issues/` file tracker | `.issues-local/`（见下节；fork 的 GitHub issues 关闭）；上游通道可用时再 `gh` 上报 | At discovery time; `Status:` on every state change |
+| Stable contracts | None until the first tagged release — see [Stable contracts](#stable-contracts) | At the first tagged release (AGENTS.md drops "Pre-release stance") |
+| Doc standard | [docs/AGENTS.md](docs/AGENTS.md) — tiers, one home per fact, bilingual pairing, word budgets | Upstream's file — moves with the rebase |
 
 Project ledger (cross-session progress): `20-Projects/Active/deepseek-harness.md`
 under the kms default vault, resolved by `kms vault path` on every host — never a
@@ -135,8 +141,9 @@ wave scoring.
    self-skips without `DEEPSEEK_API_KEY`; snapshot fixtures must replay cross-platform;
    `typecheck` / `lint` / `doc-typecheck` build `lib/types` first — never call a
    `*:contracts-ready` script directly; committed docs are bilingual triplets
-   (`.md` + `.zh.md` + `.i18n.yaml`) and `doc-sync` rejects an unpaired edit; the build
-   slot rule below, copied verbatim.
+   (`.md` + `.zh.md` + `.i18n.yaml`) and `doc-sync` rejects an unpaired edit; the
+   node build-slot check in Build & Test, copied verbatim (the host's cargo shim does
+   not gate node).
 3. **Hard boundaries:** no commits (the main session commits after verification); root
    `.env` read-only; `.issues-local/` and the SOT are main-session files; never
    `git stash`.
@@ -180,42 +187,40 @@ vendor manifest guard; pre-push: `pnpm run typecheck`. CI owns the full matrix.
 - Never `--passWithNoTests`, lower thresholds, or narrow `--coverage.include` to hide an
   uncovered file.
 
-### One build slot per machine
+Repo-specific knobs (the generic rules are host rules, below):
 
-A compile or test run is a machine-level resource shared across sessions and
-sub-agents. Rules, in order:
+- **The host build slot gates only `cargo`; here the heavy runs are node.** Before a
+  heavy build or test run: `pgrep -xa node | rg 'vitest|tsc|tsdown|vite|tsx'`;
+  non-empty ⇒ wait and re-check every ~60 s. The dsh Web server and TCP forwarder
+  from `start-local.sh` are also `node` — they are not builds; ignore them.
+- **Repo purge is `pnpm run clean`** (`node_modules/` + per-package `lib/` +
+  `coverage/` + the VitePress build are the bulk). **Purges break checks that expect
+  built `lib/`**: rebuild (`pnpm run build:lib`) before triaging a built-`lib/` smoke
+  failure as a code defect. A `node_modules` purge is not a free `pnpm install` on
+  oh-vm — native addons (node-pty) needed hand steps last time; read the ledger's
+  2026-08-14 entry first.
 
-1. **Before any heavy build or test run:** `pgrep -xa node | rg 'vitest|tsc|tsdown|vite|tsx'`;
-   non-empty ⇒ wait and re-check every ~60 s, whoever owns the run. Use `-x`, never
-   `pgrep -f` (it matches the waiting shell itself and waiters livelock). The dsh Web
-   server and TCP forwarder from `start-local.sh` are also `node` — they are not
-   builds; ignore them. Copy this rule verbatim into every sub-agent spec.
-2. **One in-flight build per machine.** An orchestrator with N sub-agents still has one
-   slot; sub-agents queue on rule 1.
-3. **Tell peer sessions.** `ListAgents` lists them. Before a long run send one line
-   ("starting pnpm test:coverage, ~N min") and "slot is yours" when done. Busy is not
-   building: ask.
-4. **Never `git stash` a shared tree.** Another session's uncommitted work rides in it.
-   Run checks on the mixed tree or isolate with `git worktree`. A red in a file you
-   didn't touch is a concurrent intermediate state: wait and re-run.
-5. **Long runs go to the background** with a log in the scratchpad, so the session
-   stays responsive while it holds the slot.
+Build slot, disk hygiene, the global cargo profile and OOM triage are host rules — see
+the host-level `~/.claude/CLAUDE.md` ("Builds on a shared machine"). New Rust repo
+conventions: nan-fedora `docs/rust-build.md`.
 
-### Disk hygiene
+## Design principles — at-hand summary
 
-`node_modules/` + per-package `lib/` + `coverage/` + the VitePress build are the bulk
-here. On this thin-provisioned host a full disk is data corruption, not slowness.
+The principles are AGENTS.md "Conventions" (imported above — not restated here, per
+the no-duplication rule at the top) plus
+[docs/defensive-patterns.md](docs/defensive-patterns.md) (read before lifecycle,
+concurrency, subprocess, or teardown work). The ones most often re-argued in fork work,
+by name only: everything is a plugin / plugins, not loop changes · model-visible ⟺
+logged · explicit > implicit at package boundaries · no hardcoded tunables in plugins ·
+misconfiguration fails loud · prefer maintained dependencies over hand-rolling.
 
-1. **Purge at wrap-up.** No rebuild planned within days ⇒ `pnpm run clean` (repo) /
-   `fed clean --apply` (machine-wide).
-2. **Check the real water level before a big build** per `~/tools/TOOLS.md`; in this
-   guest `df` lies. Below margin ⇒ clean first.
-3. **Purges break checks that expect built `lib/`.** Rebuild (`pnpm run build:lib`)
-   before triaging a built-`lib/` smoke failure as a code defect. A `node_modules`
-   purge is not a free `pnpm install` on oh-vm — native addons (node-pty) needed hand
-   steps last time; read the ledger's 2026-08-14 entry first.
-4. **Freed space returns to the host late and partially.** Deletion is damage control,
-   not a last-second flush.
+## Stable contracts
+
+None yet, deliberately: AGENTS.md "Pre-release stance" — no compatibility promise,
+`SESSION_FORMAT_VERSION` stays `0`, backends reject old on-disk formats. The fork adds
+no contract of its own. Host consumers (mem-cli's hook scripts via the
+`hooks-claude-code` bridge) track upstream as-is; a break there is a local issue plus a
+mem-cli issue, not a contract violation. Revisit at the first tagged release.
 
 ## Current project state
 
@@ -302,4 +307,6 @@ footers to commits or PR bodies unless explicitly asked.
 - [ ] Local issue updated (`Size`, Items, Exit); a sibling-repo gap filed there and
       back-linked
 - [ ] No secret in a commit, log, or `--dry-run`; no host-only file staged
+- [ ] `CLAUDE.md` + `AGENTS.md` still under the 65536-byte budget (`wc -c`); anything
+      added here is entry index / hard rule / criterion, or it went elsewhere
 - [ ] Vault ledger + daily updated (`kms project log deepseek-harness`)

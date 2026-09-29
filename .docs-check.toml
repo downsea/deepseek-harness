@@ -1,0 +1,7 @@
+# docs-check 例外登记（nan-fedora docs-check skill）。只写真正的例外，每条写清凭什么。
+
+# A5：AGENTS.md 的 Conventions 节 > 4000 B。AGENTS.md 是上游 deepseek-ai/deepseek-harness 的
+# 公开 agent 契约（本 fork 只在其上重放本地 commit，从不改它）；它的体量由上游自己的
+# verify-doc-budgets（scripts/doc-budgets.manifest.json，AGENTS.md 1950 词）管着。
+# 在 fork 里拆它 = 每次 rebase 都冲突。
+allow_large_section = ["Conventions"]
