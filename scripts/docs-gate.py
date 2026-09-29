@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# docs-check gate v1 (generated)
+# docs-check gate v2 (generated)
 #
 # 仓层最小闸 —— 三条：B1 指令预算 · I1+I2 索引双向不变量 · L1 仓内死链
 # （死链按「编号前缀 → 唯一 basename」解析，改名/搬家会给出建议；ADR-0015）。
+# 扫 docs/ 走 `git ls-files`（尊重 .gitignore），并跳过 `.docs-check.toml` 的 exempt_paths。
 #
 # **不要手改。** 它由 nan-fedora 的 docs-check skill 生成：
 #     docs_check.py <repo> --emit-gate py --emit-out scripts/docs-gate.py
@@ -12,7 +13,7 @@
 #
 # 全部 51 项检查在家族层跑：`docs_check.py <repo> --strict`。
 
-import os, re, sys
+import fnmatch, os, re, subprocess, sys
 from pathlib import Path
 
 def _find_root():
@@ -36,6 +37,53 @@ BUDGET = int(os.environ.get("DSH_INSTRUCTION_BUDGET",
 ENTRY = ("CLAUDE.md", "AGENTS.md", "CLAUDE.local.md", "AGENTS.local.md")
 PLACEHOLDER = re.compile(r"XXXX|NNNN|MMMM|NNN-|<[^>]*>|\{\{|\.\.\.|…")
 LINK = re.compile(r"\]\(\s*<?([^)\s<>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+BUILD_DIRS = {"node_modules", "target", ".venv", "venv", "__pycache__", ".tox",
+              ".mypy_cache", ".pytest_cache", "site-packages", ".git"}
+
+
+def _exempt_paths():
+    """`.docs-check.toml` 的 `exempt_paths`（供应 / 归档目录）。tomllib 缺席时用正则取数组。"""
+    f = ROOT / ".docs-check.toml"
+    if not f.is_file():
+        return []
+    raw = f.read_text(encoding="utf-8", errors="replace")
+    try:
+        import tomllib
+        return [str(x) for x in tomllib.loads(raw).get("exempt_paths", []) or []]
+    except Exception:
+        m = re.search(r"(?ms)^exempt_paths\s*=\s*\[(.*?)\]", raw)
+        if not m:
+            return []
+        body = "\n".join(ln.split("#", 1)[0] for ln in m.group(1).splitlines())
+        return re.findall(r"[\"']([^\"']+)[\"']", body)
+
+
+EXEMPT = _exempt_paths()
+
+
+def _exempt(rel):
+    return any(rel.startswith(p.rstrip("*")) or fnmatch.fnmatch(rel, p) for p in EXEMPT)
+
+
+def _docs_files():
+    """docs/ 下的文件 —— 尊重 .gitignore（`git ls-files`），不可用时回落固定构建目录排除表。
+    扫进 gitignore 的 node_modules/ 会让闸本机红、干净 clone 绿。"""
+    d = ROOT / "docs"
+    if not d.is_dir():
+        return []
+    try:
+        r = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "-co", "--exclude-standard",
+                            "--", "docs"], capture_output=True, timeout=30)
+        if r.returncode == 0:
+            names = {x for x in r.stdout.decode("utf-8", "replace").split("\0") if x}
+            return sorted(p for p in (ROOT / x for x in names) if p.is_file())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return sorted(p for p in d.rglob("*") if p.is_file()
+                  and not (BUILD_DIRS & set(p.relative_to(ROOT).parts)))
+
+
+DOCS = _docs_files()
 
 
 def blank_code(text):
@@ -95,17 +143,22 @@ def _resolve(src, target):
     base = p.name
     m = re.match(r"^(\d{3,4})-", base)
     if m and p.parent.is_dir():
+        # issue 改号后 slug 在别的编号下完整命中 ⇒ 建议按 slug；与编号命中冲突 ⇒ 不给建议（人判）
+        slug = base[len(m.group(1)) + 1:]
+        s = [x for x in p.parent.glob("*-" + slug) if x.is_file()
+             and re.match(r"^(\d{3,4})-", x.name) and x.name.split("-", 1)[1] == slug]
         c = sorted(x for x in p.parent.glob(m.group(1) + "-*") if x.is_file())
+        if s:
+            return False, (os.path.relpath(str(s[0]), str(src.parent)) if len(s) == 1 and not c else None)
         if len(c) == 1:
             return False, os.path.relpath(str(c[0]), str(src.parent))
-    docs = ROOT / "docs"
-    if docs.is_dir():
-        c = [x for x in docs.rglob(base) if x.is_file() and "archive" not in x.parts]
+    if DOCS:
+        c = [x for x in DOCS if x.name == base and "archive" not in x.parts]
         if len(c) == 1:
             return False, os.path.relpath(str(c[0]), str(src.parent))
         if m:
-            c = [x for x in docs.rglob(m.group(1) + "-*")
-                 if x.is_file() and x.suffix == ".md" and "archive" not in x.parts]
+            c = [x for x in DOCS if x.name.startswith(m.group(1) + "-")
+                 and x.suffix == ".md" and "archive" not in x.parts]
             if len(c) == 1:
                 return False, os.path.relpath(str(c[0]), str(src.parent))
     return False, None
@@ -113,11 +166,12 @@ def _resolve(src, target):
 
 def check_links(fail):
     targets = [ROOT / n for n in ENTRY if (ROOT / n).is_file()]
-    if (ROOT / "docs").is_dir():
-        targets += sorted((ROOT / "docs").rglob("*.md"))
+    targets += [p for p in DOCS if p.suffix == ".md"]
     broken = []
     for f in targets:
         rel = f.relative_to(ROOT).as_posix()
+        if _exempt(rel):
+            continue  # `.docs-check.toml` 的 exempt_paths（供应 / 归档目录）
         if rel.startswith("docs/research/") or rel.startswith("docs/archive/"):
             continue  # 研究/归档是点时快照，引用的东西搬走是历史不是缺陷
         if f.name in ("0000-template.md", "template.md"):
