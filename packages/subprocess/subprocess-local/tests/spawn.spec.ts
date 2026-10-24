@@ -386,10 +386,10 @@ describe('spawnSubprocess', () => {
     expect(result.signal).toBe(process.platform === 'win32' ? null : 'SIGTERM')
   })
 
-  it.skipIf(process.platform === 'win32')('does not wait for a Linux group that has only zombie members', async () => {
-    const pidFile = join(spillDir, `zombie-group-${Date.now()}.pid`)
+  it.skipIf(process.platform === 'win32').each(['linux', 'openharmony'])('does not wait for a %s group that has only zombie members', async (platform) => {
+    const pidFile = join(spillDir, `zombie-group-${platform}-${Date.now()}.pid`)
     const running = spawnSubprocess(spec(`sleep 60 & echo $! > ${pidFile}; echo leader-done`, { graceMs: 100 }), {
-      platform: 'linux',
+      platform,
       linuxProcessGroupHasLiveMembers: () => false,
     })
     const descendant = await waitForPidFile(pidFile)

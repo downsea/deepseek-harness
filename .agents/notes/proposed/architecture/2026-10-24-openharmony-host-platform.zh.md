@@ -12,6 +12,10 @@ OpenHarmony 上的 Node 构建报告 `process.platform === 'openharmony'`（`@ty
 - **Bash。** `dsh-bash-local` 与 `dsh-bash-sandbox` 直接 spawn 字面量 `bash`。设备上没有 Bash；`/bin/sh` 是 mksh R59。每次 `bash` 工具调用都在 spawn 时失败。
 - **账户数据库。** 由于应用沙箱的 uid 没有 passwd 条目，`os.userInfo()` 抛出 `ERR_SYSTEM_ERROR`（`uv_os_get_passwd` 返回 `ENOENT`）。`dsh-subprocess-local` 在 `SHELL` 未设置时于 `terminalEnvironment()` 中调用它，于是终端 shell 发现会抛错，而不是报告没有默认 shell。
 
+web profile 引入终端会话，随之带来第四处假设：
+
+- **进程检查。** `dsh-subprocess-local` 在分配 PTY 之前先创建进程检查器，而检查器工厂抛出 `terminal inspection is unsupported on platform openharmony`。每个 web 终端都在 node-pty 运行之前失败。在该设备上，`forkpty`、窗口尺寸 ioctl、`SIGWINCH` 以及 slave 关闭后读到 EIO 的行为都与 Linux 一致，用 NDK 构建的 node-pty 能读回 `pty-ok`。
+
 同一设备上硬链接发布也会失败；该改动由[无硬链接的不覆盖发布](2026-10-24-no-clobber-publish-without-hard-links.zh.md)负责。
 
 ## 提案
@@ -47,6 +51,25 @@ OpenHarmony 上的 Node 构建报告 `process.platform === 'openharmony'`（`@ty
 
 `terminalEnvironment()` 把 `os.userInfo()` 抛出的、`info.code` 为 `ENOENT` 的 `ERR_SYSTEM_ERROR` 视为「没有登录 shell」，不报告 `defaultShell`；消费方已据此应用各自的平台回退（POSIX 终端为 `/bin/sh`）。`userInfo()` 的其他失败仍原样 reject。`packages/` 中只有这一处调用 `os.userInfo()`；`apps/desktop` 有自己的调用，不在无头宿主的范围内。
 
+### 终端进程检查
+
+`dsh-subprocess-local` 中的 `hasLinuxProcfs(platform)` 对 `linux` 与 `openharmony` 为真。读取 Linux `/proc` 的三个分支都使用它：检查器选择、终端根 shell 退出后的会话检查，以及 fallback 所有者对只剩僵尸成员的进程组的检查。因此 OpenHarmony 使用 Linux 检查器，读取 `/proc/<pid>/stat`、`/proc/<pid>/task/<tid>/syscall`、`fd/0`、`fdinfo` 与 `mem`。其他平台名（包括 `ohos`）创建检查器时仍然失败。
+
+- 设备的 HongMeng 内核提供 `/proc/self/maps` 与 `/proc/uptime`，`ps -ef` 能列出进程。`/proc/<pid>/stat` 的字段布局与每个 task 的 `syscall` 文件尚未在设备上读取过。
+- Linux 检查器已经把无法读取或无法解析的条目算作未观察到：前台进程组无法解析，因此前台信号发送会 reject；活动状态保持 `unknown`；输入等待探测返回 false，因此 PTY 就绪判断改用空闲推断；`/proc` 目录不可读时快照抛错。所以布局差异只会降低终端观察能力，不会让终端分配失败。
+- OpenHarmony 没有 user systemd，所以普通 spawn 与终端 spawn 继续使用带警告的 fallback 所有者（`platform openharmony has no native managed range`）。
+- 检查器工厂、终端句柄、spawn internals 与 shell-activity 准备的平台参数类型为 `string`，遵循平台名规则。
+
+### 保持不变的 web profile 平台检查
+
+以下检查拒绝或跳过 `openharmony`，而设备上也没有它们可用的东西：
+
+- `dsh-native-command`：`canOpenNativePath()` 为 false，`nativeFileManager()` 为 null，文件关联查询不返回任何应用，因此 Host UI 把路径显示为文本；显式的打开或定位请求会 reject。这些路径驱动 `xdg-open`、`gio`、Finder 或 Explorer，它们都无法在 HarmonyOS 桌面上打开应用。
+- `dsh-host-directory-picker-auto` 解析为页内的 `browse` 选择器，因此不会走到原生选择器的拒绝。
+- `dsh-api-workspace-controller` 的首次使用初始化以 `system Documents directory is unavailable on openharmony` reject；部署方设置 `documentsDirectory`，与没有 `xdg-user-dir` 的 Linux 宿主相同。
+- `dsh-api-terminal-controller` 在执行环境不报告默认 shell 时回退到 `/bin/sh`，并跳过 `bash` 等缺失的候选。
+- `dsh-sandbox-local` 没有 OpenHarmony 的 runner 链，对受限模式 fail closed；HongMeng 内核没有 Landlock，设备也无法执行未签名的 `bwrap`。
+
 ## 备选方案
 
 **把 `openharmony` 映射到 Linux musl 包。** OHOS musl 的 `libc.so` 与上游 musl（`libc.musl-aarch64.so.1`）并非 ABI 相同，而且 linux 包的 `os: ["linux"]` 无法经 npm 安装到 OpenHarmony 上。Linux-musl addon 还需要改写 `NEEDED` 条目，且仍未签名。独立的包让平台保持显式。
@@ -61,6 +84,12 @@ OpenHarmony 上的 Node 构建报告 `process.platform === 'openharmony'`（`@ty
 
 **按平台给出 `shellPath` 默认值。** 插件内部依赖平台的默认值是隐藏的可调参数；当 OpenHarmony 成为发货目标时，发货的 profile 组合（`cordis.yml`）可以用 `!!js` 按平台设置该值。
 
+**单独的 OpenHarmony 进程检查器。** 它会为一个提供相同文件的内核复制一份 Linux 检查器。如果设备显示出不同的 `/proc` 布局，届时可以用子类覆盖有差异的读取。
+
+**在 OpenHarmony 上使用基于 `ps` 的 macOS 检查器。** 它没有会话 id，而根 shell 退出后的活动判断需要会话 id；它还依赖设备 `ps` 是否支持 `lstart=`、`tpgid=` 选项，这一点未知。
+
+**只在检查器工厂中接受 `openharmony`。** 那样 OpenHarmony 在检查时读取 `/proc`，而在读取同样文件的根退出与僵尸进程组判断中却不读。没有设备事实支持这种差别。
+
 ## 验收标准
 
 - 在安装了已签名 addon 的 OpenHarmony arm64 上，`tryLockExclusive` 的获取与争用行为与 Linux 相同，无头 Session 能取得 lease。
@@ -68,6 +97,8 @@ OpenHarmony 上的 Node 构建报告 `process.platform === 'openharmony'`（`@ty
 - 设置 `shellPath: /bin/sh` 后，设备上的 `bash` 工具调用在 mksh 下运行并以 0 退出；无法解析的 `shellPath` 让插件加载失败，热更新后则让下一条命令失败。
 - 账户记录缺失时 `terminalEnvironment()` resolve 且不带 `defaultShell`，`userInfo()` 的其他失败则 reject。
 - CI 的 `cross` 腿在 GitHub 上用固定版本的 SDK action 通过。
+- `createProcessInspector('openharmony')` 返回 Linux 检查器，`ohos` 仍被拒绝；在 `openharmony` 上，根退出后的会话检查与僵尸进程组检查做出与 Linux 相同的判断。
+- 在设备上，web profile 的终端能打开、回显输入、调整尺寸并关闭。
 
 ## 风险
 
@@ -76,3 +107,4 @@ OpenHarmony 上的 Node 构建报告 `process.platform === 'openharmony'`（`@ty
 - 公开 SDK 5.0.0 的 NDK 与设备构建所用的 API 26 NDK 不同。产物只用到 `flock`、`calloc`、`free`、`__errno_location` 与 Node-API 符号，但两个 NDK 的产物尚未逐字节比对。
 - 模型被告知运行的是 Bash，实际可能是 mksh。
 - `dependency-catalog.json` 由公开 npm registry 生成，新包发布之前无法列入。
+- HongMeng 内核上的 `/proc/<pid>/stat` 布局与每个 task 的 `syscall` 文件尚未读取。若有差异，表现为终端活动 `unknown`、就绪靠空闲推断、前台信号被拒绝，而不是终端失败。

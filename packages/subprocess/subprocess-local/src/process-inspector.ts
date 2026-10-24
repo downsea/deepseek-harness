@@ -533,18 +533,32 @@ class MacProcessInspector extends PosixProcessInspector {
 }
 
 /**
+ * Report whether a platform serves the Linux `/proc` files the Linux inspector reads.
+ *
+ * OpenHarmony's kernel serves a Linux-compatible procfs; Node there reports
+ * `openharmony`, which the `@types/node` Platform union omits, so callers pass
+ * the platform as `string`. An entry the inspector cannot read or parse counts
+ * as unobserved, never as an absent or idle process.
+ * @param platform - Node platform name.
+ * @returns true on `linux` and `openharmony`.
+ */
+export function hasLinuxProcfs(platform: string): boolean {
+  return platform === 'linux' || platform === 'openharmony'
+}
+
+/**
  * Create the supported platform inspector or fail at plugin load.
- * @param platform - target Node platform.
+ * @param platform - target Node platform, including `openharmony`.
  * @param arch - target CPU architecture for Linux syscall numbers.
  * @param internals - filesystem/process boundary, injectable for deterministic tests.
  * @returns Platform process inspector.
  */
 export function createProcessInspector(
-  platform: NodeJS.Platform = process.platform,
+  platform: string = process.platform,
   arch: NodeJS.Architecture = process.arch,
   internals: ProcessInspectorInternals = DEFAULT_INTERNALS,
 ): ProcessInspector {
-  if (platform === 'linux') return new LinuxProcessInspector(arch, internals)
+  if (hasLinuxProcfs(platform)) return new LinuxProcessInspector(arch, internals)
   if (platform === 'darwin') return new MacProcessInspector(internals)
   if (platform === 'win32') return createWindowsProcessInspector()
   throw new Error(`subprocess-local: terminal inspection is unsupported on platform ${platform}`)

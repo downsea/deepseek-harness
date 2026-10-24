@@ -12,6 +12,10 @@ Node builds for OpenHarmony report `process.platform === 'openharmony'` (`@types
 - **Bash.** `dsh-bash-local` and `dsh-bash-sandbox` spawn the literal `bash`. The device has no Bash; `/bin/sh` is mksh R59. Every `bash` tool call fails at spawn.
 - **Account database.** `os.userInfo()` throws `ERR_SYSTEM_ERROR` (`uv_os_get_passwd` returned `ENOENT`) because the app sandbox uid has no passwd entry. `dsh-subprocess-local` calls it in `terminalEnvironment()` when `SHELL` is unset, so terminal shell discovery throws instead of reporting no default.
 
+The web profile adds terminal sessions, and with them a fourth assumption:
+
+- **Process inspection.** `dsh-subprocess-local` creates its process inspector before it allocates a PTY, and the inspector factory throws `terminal inspection is unsupported on platform openharmony`. Every web terminal fails before node-pty runs. On the device, `forkpty`, the window-size ioctls, `SIGWINCH`, and EIO after the slave closes behave as on Linux, and an NDK-built node-pty reads back `pty-ok`.
+
 Hard-link publication fails on the same device; [no-clobber publication without hard links](2026-10-24-no-clobber-publish-without-hard-links.md) owns that change.
 
 ## Proposal
@@ -47,6 +51,25 @@ A deployment on OpenHarmony sets `shellPath: /bin/sh` on the bash executor entry
 
 `terminalEnvironment()` treats `ERR_SYSTEM_ERROR` whose `info.code` is `ENOENT` from `os.userInfo()` as "no login shell" and reports no `defaultShell`, which already lets consumers apply their platform fallback (`/bin/sh` for POSIX terminals). Any other `userInfo()` failure still rejects unchanged. `os.userInfo()` is called only there in `packages/`; `apps/desktop` has its own calls and is out of scope for a headless host.
 
+### Terminal process inspection
+
+`hasLinuxProcfs(platform)` in `dsh-subprocess-local` is true for `linux` and `openharmony`. The three branches that read Linux `/proc` use it: inspector selection, the session check after a terminal's root shell exits, and the zombie-only process-group check of the fallback owner. OpenHarmony therefore uses the Linux inspector, which reads `/proc/<pid>/stat`, `/proc/<pid>/task/<tid>/syscall`, `fd/0`, `fdinfo`, and `mem`. Every other platform name, including `ohos`, still fails inspector creation.
+
+- The device's HongMeng kernel serves `/proc/self/maps` and `/proc/uptime`, and `ps -ef` lists processes. The `/proc/<pid>/stat` field layout and the per-task `syscall` file have not been read on the device.
+- The Linux inspector already counts an unreadable or unparsable entry as unobserved: the foreground group is unresolved, so foreground signalling rejects; activity stays `unknown`; the input-wait probe reports false, so PTY readiness uses idle inference; an unreadable `/proc` directory makes a snapshot throw. A layout difference therefore degrades terminal observation instead of failing terminal allocation.
+- OpenHarmony has no user systemd, so ordinary and terminal spawns keep the warned fallback owner (`platform openharmony has no native managed range`).
+- The platform parameters of the inspector factory, the terminal handle, the spawn internals, and shell-activity preparation are `string`, following the platform-name rule.
+
+### Web profile platform checks left unchanged
+
+These checks reject or skip `openharmony`, and the device offers nothing they could use:
+
+- `dsh-native-command`: `canOpenNativePath()` is false, `nativeFileManager()` is null, and the file-association query returns no applications, so Host UI shows paths as text; an explicit open or reveal request rejects. These paths drive `xdg-open`, `gio`, Finder, or Explorer, and none of them opens an application on the HarmonyOS desktop.
+- `dsh-host-directory-picker-auto` resolves to the in-page `browse` picker, so the native picker's rejection is not reached.
+- `dsh-api-workspace-controller` first-use initialization rejects with `system Documents directory is unavailable on openharmony`; a deployment sets `documentsDirectory`, as on a Linux host without `xdg-user-dir`.
+- `dsh-api-terminal-controller` falls back to `/bin/sh` when the environment reports no default shell, and skips missing candidates such as `bash`.
+- `dsh-sandbox-local` has no OpenHarmony runner chain and fails closed for confined modes; the HongMeng kernel has no Landlock, and the device cannot execute an unsigned `bwrap`.
+
 ## Alternatives considered
 
 **Map `openharmony` to the Linux musl package.** The OHOS musl `libc.so` is not ABI-identical to upstream musl (`libc.musl-aarch64.so.1`), and the linux packages' `os: ["linux"]` would not install on OpenHarmony through npm. A Linux-musl addon would need a renamed `NEEDED` entry and still be unsigned. A separate package keeps the platform explicit.
@@ -61,6 +84,12 @@ A deployment on OpenHarmony sets `shellPath: /bin/sh` on the bash executor entry
 
 **Default `shellPath` per platform.** A platform-dependent default inside the plugin is a hidden tunable; the shipped profile composition (`cordis.yml`) can set the value per platform with `!!js` when OpenHarmony becomes a shipped target.
 
+**A separate OpenHarmony process inspector.** It would copy the Linux inspector for a kernel that serves the same files. If the device shows a different `/proc` layout, a subclass can override the differing reads then.
+
+**Use the `ps`-based macOS inspector on OpenHarmony.** It loses session ids, which root-exited activity needs, and depends on `ps` options (`lstart=`, `tpgid=`) whose support in the device's `ps` is unknown.
+
+**Accept `openharmony` only in the inspector factory.** OpenHarmony would then read `/proc` for inspection but not for the root-exit and zombie-group decisions that read the same files. No device fact supports that difference.
+
 ## Acceptance criteria
 
 - On OpenHarmony arm64 with the signed addon installed, `tryLockExclusive` acquires and contends as on Linux, and a headless Session takes its lease.
@@ -68,6 +97,8 @@ A deployment on OpenHarmony sets `shellPath: /bin/sh` on the bash executor entry
 - With `shellPath: /bin/sh` a `bash` tool call runs under mksh on the device and exits 0; an unresolvable `shellPath` fails plugin load and, after a live change, the next command.
 - `terminalEnvironment()` resolves without `defaultShell` for a missing account record and rejects other `userInfo()` failures.
 - The CI `cross` leg passes on GitHub with the pinned SDK action.
+- `createProcessInspector('openharmony')` returns the Linux inspector and `ohos` still rejects; on `openharmony` the root-exited session check and the zombie-only group check make the Linux decisions.
+- On the device, a web profile terminal opens, echoes input, resizes, and closes.
 
 ## Risks
 
@@ -76,3 +107,4 @@ A deployment on OpenHarmony sets `shellPath: /bin/sh` on the bash executor entry
 - The public SDK 5.0.0 NDK differs from the API 26 NDK the device build used. The output uses only `flock`, `calloc`, `free`, `__errno_location`, and Node-API symbols, but the two NDKs have not been compared byte-for-byte.
 - The model is told it runs Bash while it may run mksh.
 - `dependency-catalog.json` is generated from the public npm registry and cannot list the new package until it is published.
+- The `/proc/<pid>/stat` layout and the per-task `syscall` file on the HongMeng kernel are unread. A difference shows as `unknown` terminal activity, idle-inferred readiness, and rejected foreground signals, not as a failed terminal.

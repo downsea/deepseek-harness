@@ -258,7 +258,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   }
 
   private warnFallback(
-    platform: NodeJS.Platform,
+    platform: string,
     kind: 'ordinary' | 'terminal',
     selectedReason?: string,
   ): void {
