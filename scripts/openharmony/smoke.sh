@@ -35,7 +35,7 @@ sed 's/^/M1 /' "$OUT/m1.out"
 
 # M2: headless --help exits 0 and never reports a missing native binding.
 start=$(date +%s)
-sh "$ROOT/bin/dsh" --profile headless --help >"$OUT/m2.out" 2>"$OUT/m2.err"; m2=$?
+"$ROOT/bin/dsh" --profile headless --help >"$OUT/m2.out" 2>"$OUT/m2.err"; m2=$?
 end=$(date +%s)
 if grep -q 'No usable native binding' "$OUT/m2.err"; then nb=yes; else nb=no; fi
 echo "M2 exit=$m2 no-usable-native-binding=$nb seconds=$((end - start)) stdout-lines=$(wc -l <"$OUT/m2.out") stderr-lines=$(wc -l <"$OUT/m2.err")"
@@ -45,7 +45,7 @@ head -40 "$OUT/m2.err" | sed 's/^/M2 stderr: /'
 
 if [ "$M3" = 1 ]; then
   # M3: replay two recorded headless sessions (no key, no network): bash-tool-turn runs one bash-tool command
-  # through the overlay's shellPath (/bin/sh); fs-write creates a new file with the write tool. Each run must
+  # through the overlay's shellPath (/usr/bin/zsh); fs-write creates a new file with the write tool. Each run must
   # persist a session log (lease taken) and exit 0.
   PATCH="$OUT/m3-replay.patch.yml"
   sed "s|name: '@deepseek-ai/dsh-llm-replay'|name: '$ROOT/tree/node_modules/@deepseek-ai/dsh-llm-replay/lib/index.js'|" \
@@ -55,7 +55,7 @@ if [ "$M3" = 1 ]; then
     cp -R "$ROOT/tree/oh/m3/$sc/workspace/." "$W/" 2>/dev/null
     F=$(ls "$ROOT/tree/oh/m3/$sc"/session*.jsonl | tail -1)
     ( cd "$W" && DSH_HOME="$H" DSH_PERMISSION_MODE=danger-full-access DSH_SNAPSHOT_FILE="$F" \
-      timeout 180 sh "$ROOT/bin/dsh" --patch "$PATCH" --profile headless "replay $sc" >"$OUT/m3.out" 2>"$OUT/m3.err" ); m3=$?
+      timeout 180 "$ROOT/bin/dsh" --patch "$PATCH" --profile headless "replay $sc" >"$OUT/m3.out" 2>"$OUT/m3.err" ); m3=$?
     echo "M3 $sc exit=$m3 stdout=$(head -c 80 "$OUT/m3.out" | tr '\n' ' ') workspace=[$(ls "$W" | tr '\n' ' ')]"
     grep -v '^dsh: reasoning' "$OUT/m3.err" | head -40 | sed "s/^/M3 $sc stderr: /"
     "$NODE" "$ROOT/tree/oh/m3-inspect.cjs" "$H" >"$OUT/m3.inspect" 2>&1; ins=$?
@@ -86,7 +86,7 @@ if [ "$M6" = 1 ]; then
     for f in archive/a.ts docs/guide.md src/index.ts top.txt; do mkdir -p "$(dirname "$W/tree/$f")"; echo fixture >"$W/tree/$f"; done
     F=$(ls "$ROOT/tree/oh/m6/$sc"/session*.jsonl | tail -1)
     ( cd "$W" && DSH_HOME="$H" DSH_PERMISSION_MODE=danger-full-access DSH_SNAPSHOT_FILE="$F" \
-      timeout 180 sh "$ROOT/bin/dsh" --patch "$PATCH" --profile headless "replay $sc" >"$OUT/m6.out" 2>"$OUT/m6.err" ); m6=$?
+      timeout 180 "$ROOT/bin/dsh" --patch "$PATCH" --profile headless "replay $sc" >"$OUT/m6.out" 2>"$OUT/m6.err" ); m6=$?
     echo "M6 $sc exit=$m6"
     grep -v '^dsh: reasoning' "$OUT/m6.err" | head -20 | sed "s/^/M6 $sc stderr: /"
     "$NODE" "$ROOT/tree/oh/m3-inspect.cjs" "$H" >"$OUT/m6.inspect" 2>&1
@@ -116,7 +116,7 @@ if [ "$M6" = 1 ]; then
 
   # Web: start the web profile on loopback, sign in with the startup token, fetch / and stop the server.
   W="$TMPDIR/oh-m6-web"; H="$W.home"; rm -rf "$W" "$H"; mkdir -p "$W" "$H"
-  ( cd "$W" && DSH_HOME="$H" exec timeout 300 sh "$ROOT/bin/dsh" --profile web --host 127.0.0.1 --port "$PORT" --no-open \
+  ( cd "$W" && DSH_HOME="$H" exec timeout 300 "$ROOT/bin/dsh" --profile web --host 127.0.0.1 --port "$PORT" --no-open \
     >"$OUT/web.out" 2>"$OUT/web.err" ) &
   url=''; i=0
   while [ $i -lt 90 ] && [ -z "$url" ]; do sleep 1; i=$((i + 1)); url=$(sed -n 's/^dsh web: //p' "$OUT/web.out"); done

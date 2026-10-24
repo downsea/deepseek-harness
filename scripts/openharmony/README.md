@@ -24,11 +24,12 @@ git worktree add --detach $W/wt master && (cd $W/wt && pnpm install --frozen-loc
 $R/build-natives.sh $W/wt $W/natives
 $R/make-node.sh /mnt/linux_share/storage/Users/currentUser/hmos-clt/command-line-tools/node/bin/node $W/node
 $R/pack-tree.sh $W/wt $W/natives $W/out
+$R/push-env.sh hmos
 $R/deploy.sh $W/out/tree $W/node hmos
 $R/smoke.sh --m3 --m6 hmos
 ```
 
-On the device, run `sh /data/storage/el2/base/dsh/bin/dsh --profile headless --help`, or `sh /data/storage/el2/base/dsh/bin/dsh --profile web --host 127.0.0.1 --no-open` for the Web UI. The launcher always prepends `--patch <tree>/oh/openharmony.patch.yml`, so launcher options such as `--profile` must be written out instead of using the `dsh <name>` abbreviation.
+In HiShell (zsh) on the device, run `/data/storage/el2/base/dsh/bin/dsh --profile headless --help`, or `/data/storage/el2/base/dsh/bin/dsh --profile web --host 127.0.0.1 --no-open` for the Web UI. The launcher is a zsh script that loads `bin/oh-env.sh`, which loads the keys from `/data/storage/el2/base/.env.private` and unsets the proxy variables the host file sets. The launcher always prepends `--patch <tree>/oh/openharmony.patch.yml`, so launcher options such as `--profile` must be written out instead of using the `dsh <name>` abbreviation.
 
 ## Scripts
 
@@ -39,6 +40,7 @@ On the device, run `sh /data/storage/el2/base/dsh/bin/dsh --profile headless --h
 | `make-node.sh <clt-node> <out>` | Removes only `.codesign` from the vendor-signed node and self-signs it | The source has no `.permission` section, or signing drops or changes it |
 | `pack-tree.sh [--no-build] <dsh> <natives> <out>` | Runs `build:artifacts --profile official`, the three packs of `.github/workflows/release.yml`, and a `file:` tarball install modeled on `scripts/release/verify-packed-install.ts` with platform compatibility judged for `openharmony/arm64` (`npm install --ignore-scripts --omit=optional --os=openharmony --cpu=arm64`); adds `@img/sharp-wasm32` at the lockfile's version; places the addons and the `@vscode/ripgrep-openharmony-arm64` package, and sweeps every ELF file | A placement target package is missing; a signed ELF has an incongruent LOAD segment; the signed ELF count differs from the placement count |
 | `deploy.sh <tree> <node-out> <alias>` | Refuses while hvigor or dsh runs on the device; pushes node and tree (the new tree unpacks beside the old one and replaces it with `mv`); writes `bin/oh-env.sh` and `bin/dsh`; runs `sha256sum -c` on the device | A device checksum differs |
+| `push-env.sh <alias> [env-file]` | Copies the host's `~/.env.private` (default) to `/data/storage/el2/base/.env.private` with mode 0600 without printing it; the device home reads 0600 back as 0640 | The device sha256 or mode differs |
 | `smoke.sh [--m3] [--m6] <alias>` | M1 runs `device-smoke.cjs`; M2 runs `--profile headless --help`; `--m3` replays two recorded sessions; `--m6` runs the search, terminal, image and Web checks | M1 or M2 fails |
 | `device-smoke.cjs` | M1 on the device: loads each addon through its package's own loader and requires the mapped file to be inside the tree; resolves `rg` through `@vscode/ripgrep` inside the tree and runs it | Each failed check adds one to the exit status |
 | `m6-terminal.mjs` | M6 on the device: spawns `/bin/sh` and `/usr/bin/zsh` terminals through `dsh-subprocess-local`, checks echo, resize and close, and prints the activity state while idle and while `sleep` runs | Each failed check adds one to the exit status |
@@ -79,5 +81,5 @@ On the device, run `sh /data/storage/el2/base/dsh/bin/dsh --profile headless --h
 ## Constraints
 
 - Signing happens on the build machine; its self-signed output is byte-identical to signing on the device. The vendor-signed node refuses self-signed libraries, so only the `make-node.sh` node can run the tree.
-- Everything executed on the device (the `smoke.sh` here-document, `bin/dsh`, `bin/oh-env.sh`) is POSIX sh, because the device has mksh and toybox without bash.
+- The device has no bash: `/bin/sh` is mksh and HiShell's login shell is zsh (`/usr/bin/zsh`). `bin/dsh` runs under zsh and the overlay sets the bash tool's `shellPath` to `/usr/bin/zsh`; `bin/oh-env.sh` and the `smoke.sh` here-document stay POSIX sh so either shell can run them.
 - A clean rerun is `deploy.sh` and `smoke.sh` after removing `/data/storage/el2/base/dsh` on the device.

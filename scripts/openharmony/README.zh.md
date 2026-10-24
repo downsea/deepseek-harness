@@ -24,11 +24,12 @@ git worktree add --detach $W/wt master && (cd $W/wt && pnpm install --frozen-loc
 $R/build-natives.sh $W/wt $W/natives
 $R/make-node.sh /mnt/linux_share/storage/Users/currentUser/hmos-clt/command-line-tools/node/bin/node $W/node
 $R/pack-tree.sh $W/wt $W/natives $W/out
+$R/push-env.sh hmos
 $R/deploy.sh $W/out/tree $W/node hmos
 $R/smoke.sh --m3 --m6 hmos
 ```
 
-在设备上运行 `sh /data/storage/el2/base/dsh/bin/dsh --profile headless --help`；Web UI 用 `sh /data/storage/el2/base/dsh/bin/dsh --profile web --host 127.0.0.1 --no-open`。启动脚本总会在参数前加上 `--patch <tree>/oh/openharmony.patch.yml`，因此 `--profile` 等启动器选项必须写全，不能用 `dsh <name>` 简写。
+在设备的 HiShell（zsh）里运行 `/data/storage/el2/base/dsh/bin/dsh --profile headless --help`；Web UI 用 `/data/storage/el2/base/dsh/bin/dsh --profile web --host 127.0.0.1 --no-open`。启动脚本是 zsh 脚本，它加载 `bin/oh-env.sh`，后者从 `/data/storage/el2/base/.env.private` 读入 key，并清除宿主文件里设置的代理变量。启动脚本总会在参数前加上 `--patch <tree>/oh/openharmony.patch.yml`，因此 `--profile` 等启动器选项必须写全，不能用 `dsh <name>` 简写。
 
 ## 脚本
 
@@ -39,6 +40,7 @@ $R/smoke.sh --m3 --m6 hmos
 | `make-node.sh <clt-node> <out>` | 只从厂商签名的 node 中删除 `.codesign`，再自签 | 源文件没有 `.permission` 段，或签名删除、改动了它 |
 | `pack-tree.sh [--no-build] <dsh> <natives> <out>` | 运行 `build:artifacts --profile official` 与 `.github/workflows/release.yml` 的三次打包，再仿照 `scripts/release/verify-packed-install.ts` 用 `file:` tarball 安装，平台兼容性按 `openharmony/arm64` 判断（`npm install --ignore-scripts --omit=optional --os=openharmony --cpu=arm64`）；按 lockfile 版本加装 `@img/sharp-wasm32`；放置原生插件与 `@vscode/ripgrep-openharmony-arm64` 包，并扫描所有 ELF 文件 | 缺少放置目标包；已签 ELF 有不同余的 LOAD 段；已签 ELF 数与放置数不符 |
 | `deploy.sh <tree> <node-out> <alias>` | 设备上有 hvigor 或 dsh 在运行时拒绝执行；推送 node 与树（新树解包到旧树旁边，再用 `mv` 替换）；写 `bin/oh-env.sh` 与 `bin/dsh`；在设备上运行 `sha256sum -c` | 设备侧校验和不符 |
+| `push-env.sh <alias> [env-file]` | 把宿主的 `~/.env.private`（默认）以 0600 权限复制到 `/data/storage/el2/base/.env.private`，不打印内容；设备 home 会把 0600 读回为 0640 | 设备侧 sha256 或权限不符 |
 | `smoke.sh [--m3] [--m6] <alias>` | M1 运行 `device-smoke.cjs`；M2 运行 `--profile headless --help`；`--m3` 回放两段录制的会话；`--m6` 运行搜索、终端、图片与 Web 检查 | M1 或 M2 失败 |
 | `device-smoke.cjs` | 设备上的 M1：经各包自己的加载器加载每个原生插件，并要求映射的文件位于树内；经树内 `@vscode/ripgrep` 解析 `rg` 并运行一次 | 每项失败使退出码加一 |
 | `m6-terminal.mjs` | 设备上的 M6：经 `dsh-subprocess-local` 启动 `/bin/sh` 与 `/usr/bin/zsh` 终端，检查回显、resize 与关闭，并打印空闲时与 `sleep` 运行时的活动状态 | 每项失败使退出码加一 |
@@ -79,5 +81,5 @@ $R/smoke.sh --m3 --m6 hmos
 ## 约束
 
 - 签名在构建机上完成；它的自签产物与在设备上签名逐字节相同。厂商签名的 node 拒绝加载自签库，所以只有 `make-node.sh` 产出的 node 能运行这棵树。
-- 在设备上执行的部分（`smoke.sh` 的 here-document、`bin/dsh`、`bin/oh-env.sh`）都是 POSIX sh，因为设备只有 mksh 与 toybox，没有 bash。
+- 设备上没有 bash：`/bin/sh` 是 mksh，HiShell 的登录 shell 是 zsh（`/usr/bin/zsh`）。`bin/dsh` 在 zsh 下运行，叠加层把 bash 工具的 `shellPath` 设为 `/usr/bin/zsh`；`bin/oh-env.sh` 与 `smoke.sh` 的 here-document 保持 POSIX sh，两种 shell 都能运行。
 - 干净重跑：在设备上删除 `/data/storage/el2/base/dsh` 后，再运行 `deploy.sh` 与 `smoke.sh`。

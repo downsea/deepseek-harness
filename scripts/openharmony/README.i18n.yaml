@@ -9,11 +9,11 @@
   en: e7a5fc3308aac443
   zh: 732d32942d1aa6e0
 /openharmony-device-recipe/run-the-recipe:
-  en: 6be3eb7361450728
-  zh: 387a84fc6b830e06
+  en: cc447d498086aaba
+  zh: a54c92139e4b17ba
 /openharmony-device-recipe/scripts:
-  en: b5afbd7b98a0a14c
-  zh: c074065da2cb6f74
+  en: faf22a4eb4661c95
+  zh: c99add6e31f52126
 /openharmony-device-recipe/addon-placement:
   en: d5fa21cc016c1da7
   zh: 08fec8794a0d957c
@@ -27,5 +27,5 @@
   en: ba28f873fc2b9ce9
   zh: b1c93e28c59ece8e
 /openharmony-device-recipe/constraints:
-  en: 65756686b1cc2e41
-  zh: 858785450bed9586
+  en: 8e6b4ba9cfdb14e5
+  zh: 8c5fffc78869a7ec
