@@ -114,7 +114,7 @@ describe('publishNoClobber with hard links', () => {
     expect(await readFile(source, 'utf8')).toBe('staged')
   })
 
-  it.each(['EACCES', 'EXDEV', 'EIO'])('propagates a %s link failure without falling back', async (code) => {
+  it.each(['EXDEV', 'EIO'])('propagates a %s link failure without falling back', async (code) => {
     const root = await tempRoot()
     const { source, target } = await staged(root)
 
@@ -140,7 +140,7 @@ describe('publishNoClobber with hard links', () => {
 })
 
 describe.each<FallbackKind>(['writer-lock', 'exclusive-reservation'])('publishNoClobber %s fallback', (kind) => {
-  it.each(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])('publishes by rename after a %s link failure', async (code) => {
+  it.each(['EPERM', 'EACCES', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])('publishes by rename after a %s link failure', async (code) => {
     const root = await tempRoot()
     const { source, target } = await staged(root)
 
@@ -149,6 +149,17 @@ describe.each<FallbackKind>(['writer-lock', 'exclusive-reservation'])('publishNo
     expect(await readFile(target, 'utf8')).toBe('staged')
     expect(await exists(source)).toBe(false)
     expect(await readdir(root)).toEqual(['target'])
+  })
+
+  it('rejects a genuine permission failure after an EACCES link failure and keeps the source', async () => {
+    const root = await tempRoot()
+    const { source, target } = await staged(root)
+    state.renameFailure = 'EACCES'
+
+    await expect(publishNoClobber(source, target, { fallback: fallbackFor(kind, target), source: 'consume', link: refusingLink('EACCES') }))
+      .rejects.toMatchObject({ code: 'EACCES' })
+    expect(await readFile(source, 'utf8')).toBe('staged')
+    expect(await exists(target)).toBe(false)
   })
 
   it('rejects an occupied target with EEXIST and leaves both files untouched', async () => {

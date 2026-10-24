@@ -17,7 +17,7 @@ A related failure sits in the same attachment path: before its first write, `att
 Add `publishNoClobber(source, target, options)` to [`dsh-atomic-write`](../../../../packages/util/atomic-write/README.md) and route all five sites through it.
 
 - **Hard link first.** The call attempts `link(2)` (or the caller's injected link primitive). Success and every failure except missing hard-link support keep today's meaning, so Linux, macOS, and Windows filesystems with hard links behave as before.
-- **Fallback trigger.** Only `EPERM`, `ENOTSUP`, `EOPNOTSUPP`, and `ENOSYS` select the fallback. `EEXIST` stays a collision. `EXDEV` is excluded because every caller stages beside its target, so a cross-device report is a caller defect that a rename would repeat. `EACCES` is excluded because a rename needs the same directory write permission.
+- **Fallback trigger.** Only `EPERM`, `EACCES`, `ENOTSUP`, `EOPNOTSUPP`, and `ENOSYS` select the fallback. On the HarmonyOS PC the home filesystem (hmdfs) refuses hard links with `EPERM` and the app-data filesystem (hmfs, under `/data/storage/el2/base`) with `EACCES`, while both permit a rename in the same directory. A genuine permission failure behind either code still fails, because every fallback creates or renames in the same directory and meets the same refusal. `EEXIST` stays a collision. `EXDEV` is excluded because every caller stages beside its target, so a cross-device report is a caller defect that a rename would repeat.
 - **Required fallback choice.** `fallback` is a required discriminated value. `{ kind: 'writer-lock', lockFile }` renames under `withFileLock(lockFile)` after `lstat` confirms the target is absent, and reports an occupied target with the same `EEXIST` fields a hard link reports. `{ kind: 'exclusive-reservation' }` claims the target with an empty `wx` file and renames the staged file over it.
 - **Required source ownership.** `source: 'consume'` lets the fallback rename the staged file itself. `source: 'keep'` copies the source to a synced `COPYFILE_EXCL` sibling of the target and renames that copy, so the source name survives.
 - **Explicit result.** The call returns `'hard-link'` or `'rename'`, so a caller knows whether its staged name still exists. A failed call leaves the source in place.
@@ -60,7 +60,7 @@ The fallback is not logged. The published bytes, the collision result, and every
 
 - With hard links available, all five sites publish by hard link and existing package tests pass unchanged.
 - With `link(2)` failing `EPERM`, a new JSONL session materializes and reads back, a generation migrates, an attachment object and alias are stored and read back, and `createIfAbsent` creates the file; an occupied target still yields the site's collision outcome (`EEXIST`, `ATTACHMENT_CORRUPT`, or `FS_NOT_OBSERVED`).
-- A non-support link failure such as `EIO` or `EACCES` propagates without a fallback.
+- A non-support link failure such as `EIO` or `EXDEV` propagates without a fallback; an `EACCES` link failure whose fallback is also refused propagates `EACCES`.
 - An attachment save under `DSH_HOME` succeeds when an ancestor above an existing level refuses to open, and fails when the refusing ancestor is the parent of a directory the save created.
 - Every changed `src` file keeps per-file 100% coverage.
 

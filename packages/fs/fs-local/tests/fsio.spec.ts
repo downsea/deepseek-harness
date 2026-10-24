@@ -823,7 +823,7 @@ describe('writeFileAtomic — temp-file safety', () => {
 
   it('maps a non-collision guarded-create publication failure and cleans staging', async () => {
     const file = join(dir, 'a.txt')
-    const denied = Object.assign(new Error('link denied'), { code: 'EACCES' })
+    const denied = Object.assign(new Error('link failed'), { code: 'EIO' })
 
     await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
       linkFile: async () => { throw denied },

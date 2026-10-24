@@ -72,7 +72,7 @@ const publication = await publishNoClobber(staged, target, {
 })
 ```
 
-它先尝试硬链接，因此支持硬链接的文件系统上行为与 `link(2)` 完全一致。只有报告缺少硬链接支持的链接失败（`EPERM`、`ENOTSUP`、`EOPNOTSUPP`、`ENOSYS`）才会选用声明的回退；其他链接失败原样重新抛出，目标已存在时每条路径都以 `EEXIST` 失败。暂存名仍存在时结果为 `'hard-link'`，`consume` 发布移走了它时结果为 `'rename'`。按目录归谁所有选择回退：
+它先尝试硬链接，因此支持硬链接的文件系统上行为与 `link(2)` 完全一致。只有可能表示缺少硬链接支持的链接失败（`EPERM`、`EACCES`、`ENOTSUP`、`EOPNOTSUPP`、`ENOSYS`）才会选用声明的回退，真正的权限故障仍会在回退于同一目录中的创建或 rename 处失败；其他链接失败原样重新抛出，目标已存在时每条路径都以 `EEXIST` 失败。暂存名仍存在时结果为 `'hard-link'`，`consume` 发布移走了它时结果为 `'rename'`。按目录归谁所有选择回退：
 
 - `writer-lock` 在 `withFileLock(lockFile)` 下确认目标不存在后 rename。读取方只会看到无文件或完整内容，但排他性只覆盖指定同一 `lockFile` 的发布者，且其 `.lock` 同级名必须归调用方所有。
 - `exclusive-reservation` 用一个 `wx` 空文件占住目标，再 rename 覆盖它。排他性覆盖所有创建者，但读取方在 rename 之前可能看到空文件，在这段窗口内崩溃会留下它。

@@ -278,16 +278,20 @@ export async function withFileLock<T>(
 }
 
 /**
- * `link(2)` error codes that report a filesystem without hard-link support
- * rather than a collision or a permission problem. `EPERM` is what Linux and
- * the HarmonyOS PC report for a filesystem that refuses hard links;
- * `ENOTSUP` / `EOPNOTSUPP` and `ENOSYS` are the other codes a filesystem or
- * kernel uses for an unimplemented operation. `EXDEV` is excluded: every
- * caller stages next to the target, so a cross-device report is a caller
- * defect that a rename would repeat. `EACCES` is excluded: a rename needs the
- * same directory write permission.
+ * `link(2)` error codes that can report a filesystem without hard-link
+ * support rather than a collision. `EPERM` is what Linux and the HarmonyOS PC
+ * home filesystem (hmdfs) report for a filesystem that refuses hard links;
+ * `EACCES` is what the HarmonyOS PC app-data filesystem (hmfs, under
+ * `/data/storage/el2/base`) reports for the same refusal while it still
+ * permits a rename in that directory; `ENOTSUP` / `EOPNOTSUPP` and `ENOSYS`
+ * are the other codes a filesystem or kernel uses for an unimplemented
+ * operation. A genuine permission failure behind `EPERM` or `EACCES` still
+ * fails: every fallback creates or renames in the same directory and reports
+ * the same refusal. `EXDEV` is excluded: every caller stages next to the
+ * target, so a cross-device report is a caller defect that a rename would
+ * repeat.
  */
-const HARD_LINK_UNSUPPORTED_ERRORS: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])
+const HARD_LINK_UNSUPPORTED_ERRORS: ReadonlySet<string> = new Set(['EPERM', 'EACCES', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])
 
 /** Whether a `link(2)` failure reports missing hard-link support. */
 function isHardLinkUnsupported(error: unknown): boolean {
@@ -410,9 +414,9 @@ async function stageCopy(source: string, target: string): Promise<string> {
  * Publish the complete file at `source` under `target` without replacing an
  * existing `target`. A hard link is attempted first, so filesystems that
  * support one behave exactly as a bare `link(2)`. Only when the link fails
- * with a code reporting missing hard-link support (`EPERM`, `ENOTSUP`,
- * `EOPNOTSUPP`, `ENOSYS`) does the selected {@link NoClobberFallback} publish
- * by rename. An occupied target fails with `EEXIST` on every path, any other
+ * with a code that can report missing hard-link support (`EPERM`, `EACCES`,
+ * `ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`) does the selected
+ * {@link NoClobberFallback} publish by rename. An occupied target fails with `EEXIST` on every path, any other
  * link failure propagates unchanged, and a failed call leaves `source` in
  * place. `source` must be complete and synced before the call, and sit on
  * the same filesystem as `target`; the caller syncs the parent directory

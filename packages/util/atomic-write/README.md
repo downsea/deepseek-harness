@@ -72,7 +72,7 @@ const publication = await publishNoClobber(staged, target, {
 })
 ```
 
-It tries a hard link first, so a filesystem with hard links behaves exactly as `link(2)`. Only a link failure reporting missing hard-link support (`EPERM`, `ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`) selects the stated fallback; any other link failure is rethrown, and an occupied target fails with `EEXIST` on every path. The result is `'hard-link'` when the staged name still exists and `'rename'` when a `consume` publication moved it. Choose the fallback by who owns the directory:
+It tries a hard link first, so a filesystem with hard links behaves exactly as `link(2)`. Only a link failure that can report missing hard-link support (`EPERM`, `EACCES`, `ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`) selects the stated fallback, and a genuine permission failure still fails in the fallback's own create or rename in the same directory; any other link failure is rethrown, and an occupied target fails with `EEXIST` on every path. The result is `'hard-link'` when the staged name still exists and `'rename'` when a `consume` publication moved it. Choose the fallback by who owns the directory:
 
 - `writer-lock` renames under `withFileLock(lockFile)` after confirming the target is absent. Readers see no file or the complete content, but exclusivity covers only publishers that name the same `lockFile`, and its `.lock` sibling must be a name the caller owns.
 - `exclusive-reservation` claims the target with an empty `wx` file and renames over it. Exclusivity covers every creator, but a reader can see the empty file until the rename, and a crash in that window leaves it.

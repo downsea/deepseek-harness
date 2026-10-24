@@ -17,7 +17,7 @@ Status: proposed
 在 [`dsh-atomic-write`](../../../../packages/util/atomic-write/README.zh.md) 中加入 `publishNoClobber(source, target, options)`，让五个发布点都经由它发布。
 
 - **先试硬链接。** 调用先尝试 `link(2)`（或调用方注入的链接原语）。成功以及除“缺少硬链接支持”之外的所有失败保持今天的含义，因此支持硬链接的 Linux、macOS 与 Windows 文件系统行为不变。
-- **回退触发条件。** 只有 `EPERM`、`ENOTSUP`、`EOPNOTSUPP` 与 `ENOSYS` 选用回退。`EEXIST` 仍是冲突。排除 `EXDEV`：每个调用方都在目标旁暂存，跨设备报告是调用方缺陷，rename 会重复它。排除 `EACCES`：rename 需要同样的目录写权限。
+- **回退触发条件。** 只有 `EPERM`、`EACCES`、`ENOTSUP`、`EOPNOTSUPP` 与 `ENOSYS` 选用回退。在鸿蒙 PC 上，home 文件系统（hmdfs）以 `EPERM` 拒绝硬链接，应用数据文件系统（hmfs，`/data/storage/el2/base` 之下）以 `EACCES` 拒绝，而两者都允许同一目录内的 rename。这两个错误码背后真正的权限故障仍会失败，因为每种回退都在同一目录中创建或 rename，会遇到同样的拒绝。`EEXIST` 仍是冲突。排除 `EXDEV`：每个调用方都在目标旁暂存，跨设备报告是调用方缺陷，rename 会重复它。
 - **必填的回退选择。** `fallback` 是必填的可辨识值。`{ kind: 'writer-lock', lockFile }` 在 `withFileLock(lockFile)` 下经 `lstat` 确认目标不存在后 rename，目标已存在时报告与硬链接相同字段的 `EEXIST`。`{ kind: 'exclusive-reservation' }` 用一个 `wx` 空文件占住目标，再把暂存文件 rename 覆盖上去。
 - **必填的源文件归属。** `source: 'consume'` 允许回退直接 rename 暂存文件。`source: 'keep'` 把源文件复制为目标旁一个已同步的 `COPYFILE_EXCL` 同级文件并 rename 该副本，从而保留源文件名。
 - **显式结果。** 调用返回 `'hard-link'` 或 `'rename'`，调用方据此知道其暂存名是否仍存在。失败的调用保留源文件。
@@ -60,7 +60,7 @@ Status: proposed
 
 - 硬链接可用时，五个发布点都以硬链接发布，现有包测试不加修改地通过。
 - `link(2)` 以 `EPERM` 失败时，新 JSONL 会话能实体化并读回，generation 能迁移，附件对象与别名能存储并读回，`createIfAbsent` 能创建文件；目标已存在时仍得到该发布点的冲突结果（`EEXIST`、`ATTACHMENT_CORRUPT` 或 `FS_NOT_OBSERVED`）。
-- `EIO`、`EACCES` 等非“不支持”类链接失败不走回退，原样传播。
+- `EIO`、`EXDEV` 等非“不支持”类链接失败不走回退，原样传播；`EACCES` 链接失败而回退同样被拒时，传播 `EACCES`。
 - 某个已存在层级之上的祖先拒绝打开时，`DSH_HOME` 下的附件保存成功；拒绝打开的祖先是本次保存所创建目录的父目录时，保存失败。
 - 每个改动的 `src` 文件保持逐文件 100% 覆盖。
 
