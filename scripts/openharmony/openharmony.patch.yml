@@ -1,0 +1,7 @@
+# Device overlay applied by the deploy.sh launcher (`dsh --patch <this> ...`).
+# The device has mksh at /bin/sh and no bash. A patch config replaces the whole
+# plugin config, so the base bundle's timeoutMs is restated.
+- id: bash-sandbox
+  config:
+    timeoutMs: 60000
+    shellPath: /bin/sh

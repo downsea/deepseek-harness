@@ -1,0 +1,20 @@
+# Keyless M3 overlay (smoke.sh --m3): the shipped headless profile with the DeepSeek adapter replaced by
+# dsh-llm-replay, so the model stream comes from a recorded session fixture ($DSH_SNAPSHOT_FILE, set by
+# smoke.sh) and no request leaves the device. smoke.sh rewrites the plugin name to the tree's absolute
+# lib/index.js: bare names resolve from the profile directory, which does not hold test-support packages.
+# The first-prompt title model call is off: the fixtures' scripts carry only the task's own calls.
+- id: llm-deepseek
+  disabled: true
+
+- id: session-title-llm
+  disabled: true
+
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: deepseek-official
+            models:
+              - id: deepseek-v4-flash
+              - id: deepseek-v4-pro
