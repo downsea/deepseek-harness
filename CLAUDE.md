@@ -23,12 +23,12 @@ default trees here. Template concept → this repo's home:
 
 | Template concept | This repo's home | Update when |
 |---|---|---|
-| Positioning / design philosophy | root `AGENTS.md` (identity line, pre-release stance, Conventions) + [docs/defensive-patterns.md](docs/defensive-patterns.md) | Upstream's files — they move with the rebase; a new shipped bug class → defensive-patterns in the same PR |
+| Positioning / design philosophy | root `AGENTS.md` (identity line, "Pre-stable APIs and released Session data", Conventions) + [docs/defensive-patterns/](docs/defensive-patterns/README.md) | Upstream's files — they move with the rebase; a new shipped bug class → defensive-patterns in the same PR |
 | `docs/<proj>-architecture.md` | [docs/architecture.md](docs/architecture.md) (read before changing `packages/`); per-subsystem detail in [docs/subsystems/](docs/subsystems/README.md) | Same PR as any `packages/` behaviour or `agent-loop` change |
 | `docs/adr/` (decisions) | `.agents/notes/{proposed,implemented,rejected}/{class}/yyyy-mm-dd-topic.md` Agent Notes (same-PR rule + format gate in [.agents/notes/README.md](.agents/notes/README.md)); `archived/` is frozen history | Every non-trivial change (same PR); lifecycle dir moves when the decision lands or is rejected |
 | `docs/research/` | Upstream-worthy: an Agent Note in `proposed/`. Cross-stack (dsh × aeu / atd / mem): `~/code/agent-native-stack/docs/research/` (e.g. `2026-08-14-dsh-deep-study/`, `2026-08-19-dsh-rc7-recheck.md`). Local-only: the issue's Context in `.issues-local/` | Before non-trivial work (Research → dev) |
 | `docs/issues/` file tracker | `.issues-local/`（见下节；fork 的 GitHub issues 关闭）；上游通道可用时再 `gh` 上报 | At discovery time; `Status:` on every state change |
-| Stable contracts | None until the first tagged release — see [Stable contracts](#stable-contracts) | At the first tagged release (AGENTS.md drops "Pre-release stance") |
+| Stable contracts | Upstream's released Session data only — see [Stable contracts](#stable-contracts) | When upstream declares a stable API |
 | Doc standard | [docs/AGENTS.md](docs/AGENTS.md) — tiers, one home per fact, bilingual pairing, word budgets | Upstream's file — moves with the rebase |
 
 Project ledger (cross-session progress): `20-Projects/Active/deepseek-harness.md`
@@ -208,7 +208,7 @@ conventions: nan-fedora `docs/rust-build.md`.
 
 The principles are AGENTS.md "Conventions" (imported above — not restated here, per
 the no-duplication rule at the top) plus
-[docs/defensive-patterns.md](docs/defensive-patterns.md) (read before lifecycle,
+[docs/defensive-patterns/](docs/defensive-patterns/README.md) (read before lifecycle,
 concurrency, subprocess, or teardown work). The ones most often re-argued in fork work,
 by name only: everything is a plugin / plugins, not loop changes · model-visible ⟺
 logged · explicit > implicit at package boundaries · no hardcoded tunables in plugins ·
@@ -216,22 +216,23 @@ misconfiguration fails loud · prefer maintained dependencies over hand-rolling.
 
 ## Stable contracts
 
-None yet, deliberately: AGENTS.md "Pre-release stance" — no compatibility promise,
-`SESSION_FORMAT_VERSION` stays `0`, backends reject old on-disk formats. The fork adds
-no contract of its own. Host consumers (mem-cli's hook scripts via the
+Upstream's only: AGENTS.md "Pre-stable APIs and released Session data" — public APIs
+are pre-stable, released Session data migrates by adjacent version-named successors.
+The fork adds no contract of its own. Host consumers (mem-cli's hook scripts via the
 `hooks-claude-code` bridge) track upstream as-is; a break there is a local issue plus a
 mem-cli issue, not a contract violation. Revisit at the first tagged release.
 
 ## Current project state
 
-- **master = upstream `0.1.0-rc.8`** (`f1f7dc36fa`, 2026-08-19) + local commits re-applied:
-  `af8b379269` sandbox `writablePaths` (local issue 001, closed-verified) and
-  `c75d8163ae` this file. `backup/master-pre-rc7` keeps the pre-rebase line;
-  `local/001-*` and `local/claude-md-merge` are its merged feature branches.
-- **Active:** mem × dsh integration via the `hooks-claude-code` bridge — usable under
-  `workspace-write` with `writablePaths`; `start-local.sh` serves the Web UI at
-  VM-IP:3080 for the host browser. Open local issues 002 (SessionStart audit gap +
-  first-turn race), 003 (no `PostToolUseFailure` hook point), 004 (extensions doc drift).
+- **master = upstream after `dsh-v0.2.1-rc.3`** (rebased 2026-10-24) + the `chore(local)`
+  commits for this file and the repo doc gate. The local sandbox `writablePaths` change
+  (issue 001) was dropped at that rebase; `backup/master-pre-0.2.1` (local only) and
+  `backup/master-pre-rc7` keep the earlier lines.
+- **Active:** huge epic 016 — dsh running natively on the HarmonyOS PC
+  (`process.platform === "openharmony"`); SOT `.issues-local/2026-10-24-dsh-hmos-native/`,
+  work on `local/016-hmos-native`, device recipe in `scripts/openharmony/`.
+- **Paused:** mem × dsh via the `hooks-claude-code` bridge (needs `danger-full-access`
+  again after the `writablePaths` drop; issue 005). Open local issues 002–015.
 - **Dormant:** Cordiverse-paper reusable points → concrete tasks; trigger is the user
   confirming `/paper-to-project` (ledger 下一步).
 
