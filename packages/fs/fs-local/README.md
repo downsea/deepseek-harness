@@ -84,7 +84,7 @@ The backend builds on three ideas:
 
 ### Write path
 
-Each write probes the target, enforces the optional guard (`createIfAbsent` or `replaceIfVersion`), captures a bounded `before` diff basis when both sides are small enough, stages the new content next to the target, fsyncs, and publishes atomically. Guarded creation uses a hard-link publication that never replaces a concurrent creator, rejecting it with `FS_NOT_OBSERVED` instead.
+Each write probes the target, enforces the optional guard (`createIfAbsent` or `replaceIfVersion`), captures a bounded `before` diff basis when both sides are small enough, stages the new content next to the target, fsyncs, and publishes atomically. Guarded creation publishes through [`publishNoClobber`](../../util/atomic-write/README.md#publishing-without-replacement), which never replaces a concurrent creator and rejects the write with `FS_NOT_OBSERVED` instead. A filesystem without hard links publishes by claiming the target name with an empty exclusive-create file and renaming the staged file over it, so this exclusivity also holds against programs outside dsh.
 
 ### Edit path
 
@@ -135,7 +135,7 @@ These limits define when the local backend is a poor fit or needs special operat
 - **A sub-limit overwrite still buffers a contextual basis** — `writeText` may retain up to just below `config.diffBasisMaxBytes` of prior text in addition to the caller-owned replacement; the bound does not cap the returned `after` value or the whole-file presentation fallback.
 - **Binary detection is asymmetric** — reads NUL-sample only the first 8192 bytes while edits scan the whole buffer, so a file with a late NUL reads fine but rejects edits.
 - **The per-target mutation lock is in-process only** — guarded creation still uses an atomic no-replace publication across processes, but replacement writers in another process are caught only when the optional version guard observes their metadata change; they are never serialized.
-- **Guarded creation requires hard-link support** — filesystems or mounts that reject hard-link publication cannot serve `createIfAbsent`; the backend preserves the missing target and reports `FS_IO_ERROR`.
+- **Guarded creation without hard links briefly exposes an empty file** — on a filesystem that refuses hard links, the created target is an empty file until the staged content replaces it, and a crash in that window leaves the empty file, which a later `createIfAbsent` write rejects with `FS_NOT_OBSERVED`.
 - **Post-commit cleanup is best effort** — a successful publication remains successful if removal of its owner-only staging directory fails, leaving private residue for later operator cleanup.
 
 <a id="dev-note"></a>
