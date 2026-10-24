@@ -11,6 +11,7 @@
 #   tree/            package.json + flat node_modules + oh/ (SHA256SUMS, elf-sweep.txt, device-smoke.cjs)
 #   node/bin/node    self-signed node
 #   bin/oh-env.sh    environment for every device-side run (sourced); loads $BASE/.env.private (push-env.sh)
+#   bin/dsh-web      zsh shorthand: serve the web profile and open it in the device browser (dsh-web.zsh)
 #   bin/dsh          zsh launcher: <root>/bin/dsh --profile <name> <args>; always prepends
 #                    --patch tree/oh/openharmony.patch.yml (bash tool runs /usr/bin/zsh), so launcher flags such as
 #                    --profile must be spelled out rather than abbreviated as `dsh <name>`
@@ -61,6 +62,10 @@ ssh "$HOST" "cat > '$ROOT/bin/dsh' && chmod 755 '$ROOT/bin/dsh'" <<EOF
 . '$ROOT/bin/oh-env.sh'
 exec '$ROOT/node/bin/node' '$ROOT/tree/node_modules/@deepseek-ai/dsh/lib/bin.js' --patch '$ROOT/tree/oh/openharmony.patch.yml' "\$@"
 EOF
+
+log "install dsh-web and put $ROOT/bin on the HiShell PATH (~/.zshrc block, idempotent)"
+ssh "$HOST" "cat > '$ROOT/bin/dsh-web' && chmod 755 '$ROOT/bin/dsh-web'" <"$(dirname "$0")/dsh-web.zsh"
+ssh "$HOST" "grep -q '^# >>> dsh (openharmony deploy.sh) >>>' ~/.zshrc 2>/dev/null || printf '%s\\n' '# >>> dsh (openharmony deploy.sh) >>>' 'path=($ROOT/bin \$path)' '# <<< dsh <<<' >> ~/.zshrc"
 
 log "verify on device"
 ssh "$HOST" "cd '$ROOT/tree' && sha256sum -c oh/SHA256SUMS && sha256sum '$ROOT/node/bin/node' && du -sh '$ROOT/tree'"
