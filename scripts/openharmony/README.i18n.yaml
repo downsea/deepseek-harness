@@ -9,20 +9,23 @@
   en: e7a5fc3308aac443
   zh: 732d32942d1aa6e0
 /openharmony-device-recipe/run-the-recipe:
-  en: 62cb76519d9fa21b
-  zh: f6e9e3bdbd5a70b8
+  en: 6be3eb7361450728
+  zh: 387a84fc6b830e06
 /openharmony-device-recipe/scripts:
-  en: 912b91ad18235aa7
-  zh: e117df7a04f50590
+  en: b5afbd7b98a0a14c
+  zh: c074065da2cb6f74
 /openharmony-device-recipe/addon-placement:
-  en: 2bb4d9d3644877eb
-  zh: 943b2d4bde3aeb4d
+  en: d5fa21cc016c1da7
+  zh: 08fec8794a0d957c
 /openharmony-device-recipe/device-environment:
-  en: 166be64656cd972e
-  zh: 6b0c5223e2f60964
+  en: f0ce37cf7055a30d
+  zh: 283dad8a30ccc314
 /openharmony-device-recipe/m3-replay:
   en: 0f8812f5725575ec
   zh: 7fedf2ad763e299f
+/openharmony-device-recipe/m6-checks:
+  en: ba28f873fc2b9ce9
+  zh: b1c93e28c59ece8e
 /openharmony-device-recipe/constraints:
   en: 65756686b1cc2e41
   zh: 858785450bed9586

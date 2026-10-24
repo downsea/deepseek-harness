@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# Device smoke over ssh: M1 (addons load from the deployed tree), M2 (dsh --profile headless --help), and with
-# --m3 a keyless session-persistence probe. The device-side part is POSIX sh (the device has mksh/toybox, no bash).
+# Device smoke over ssh: M1 (addons and rg load or run from the deployed tree), M2 (dsh --profile headless --help),
+# with --m3 a keyless session-persistence probe, and with --m6 the web, search and terminal probe. The device-side
+# part is POSIX sh (the device has mksh/toybox, no bash).
 #
-# Usage: smoke.sh [--m3] <host-alias>
-# Output lines prefixed M1/M2/M3; exit status is non-zero when M1 or M2 fails; M3 prints its own verdict lines.
+# Usage: smoke.sh [--m3] [--m6] <host-alias>
+# Output lines prefixed M1/M2/M3/M6; exit status is non-zero when M1 or M2 fails; M3 and M6 print their own
+# verdict lines.
 #
-# --m3 replays two recorded sessions through dsh-llm-replay (tree/oh/m3-replay.patch.yml): no credential is
-# placed on the device and no request leaves it.
+# --m3 and --m6 replay recorded sessions through dsh-llm-replay (tree/oh/m3-replay.patch.yml): no credential is
+# placed on the device and no request leaves it. --m6 also starts `dsh --profile web` on 127.0.0.1:$M6_PORT
+# (default 3999) for one HTTP check and stops it again.
 set -euo pipefail
-M3=0
-[ "${1:-}" = --m3 ] && { M3=1; shift; }
-[ $# -eq 1 ] || { echo "usage: smoke.sh [--m3] <host-alias>" >&2; exit 2; }
+M3=0 M6=0
+while [ $# -gt 1 ]; do
+  case $1 in --m3) M3=1 ;; --m6) M6=1 ;; *) break ;; esac; shift
+done
+[ $# -eq 1 ] || { echo "usage: smoke.sh [--m3] [--m6] <host-alias>" >&2; exit 2; }
 HOST=$1
 ROOT="${DSH_OH_ROOT:-/data/storage/el2/base/dsh}"
+PORT="${M6_PORT:-3999}"
 
-ssh "$HOST" "ROOT='$ROOT' M3=$M3 sh -s" <<'DEVICE'
+ssh "$HOST" "ROOT='$ROOT' M3=$M3 M6=$M6 PORT=$PORT sh -s" <<'DEVICE'
 set -u
 . "$ROOT/bin/oh-env.sh"
 NODE="$ROOT/node/bin/node"
@@ -59,6 +65,71 @@ if [ "$M3" = 1 ]; then
     if [ $m3 -eq 0 ] && [ $ins -eq 0 ] && [ "$lock" -gt 0 ]; then v=ok; else v=fail; fi
     echo "M3 $sc verdict=$v (exit=$m3 tools-ok=$([ $ins -eq 0 ] && echo yes || echo no) lock-files=$lock)"
   done
+fi
+
+if [ "$M6" = 1 ]; then
+  RG="$ROOT/tree/node_modules/@vscode/ripgrep-openharmony-arm64/bin/rg"
+  # Search: the placed rg runs and finds a match.
+  W="$TMPDIR/oh-m6-rg"; rm -rf "$W"; mkdir -p "$W/sub"; echo 'm6 needle line' >"$W/sub/hit.txt"
+  echo "M6 rg version: $("$RG" --version | head -1)"
+  hit=$("$RG" -n --no-config needle "$W" 2>&1); rgx=$?
+  echo "M6 rg exit=$rgx hit=$hit"
+  if [ $rgx -eq 0 ] && echo "$hit" | grep -q 'hit.txt:1:m6 needle line'; then v=ok; else v=fail; fi
+  echo "M6 rg verdict=$v"
+
+  # Replays: glob tool (rg --files through @vscode/ripgrep) and the terminal tools on the real PTY stack.
+  PATCH="$OUT/m6-replay.patch.yml"
+  cat "$ROOT/tree/oh/m3-replay.patch.yml" "$ROOT/tree/oh/m6-replay.patch.yml" \
+    | sed "s|name: '@deepseek-ai/dsh-llm-replay'|name: '$ROOT/tree/node_modules/@deepseek-ai/dsh-llm-replay/lib/index.js'|" >"$PATCH"
+  for sc in fs-glob-sampling pty-tools-sandbox-backend; do
+    W="$TMPDIR/oh-m6-$sc"; H="$W.home"; rm -rf "$W" "$H"; mkdir -p "$W" "$H"
+    for f in archive/a.ts docs/guide.md src/index.ts top.txt; do mkdir -p "$(dirname "$W/tree/$f")"; echo fixture >"$W/tree/$f"; done
+    F=$(ls "$ROOT/tree/oh/m6/$sc"/session*.jsonl | tail -1)
+    ( cd "$W" && DSH_HOME="$H" DSH_PERMISSION_MODE=danger-full-access DSH_SNAPSHOT_FILE="$F" \
+      timeout 180 sh "$ROOT/bin/dsh" --patch "$PATCH" --profile headless "replay $sc" >"$OUT/m6.out" 2>"$OUT/m6.err" ); m6=$?
+    echo "M6 $sc exit=$m6"
+    grep -v '^dsh: reasoning' "$OUT/m6.err" | head -20 | sed "s/^/M6 $sc stderr: /"
+    "$NODE" "$ROOT/tree/oh/m3-inspect.cjs" "$H" >"$OUT/m6.inspect" 2>&1
+    sed "s/^M3-/M6-/; s/^/M6 $sc /" "$OUT/m6.inspect"
+    case $sc in
+      fs-glob-sampling) need='result isError=false "tree/' ; n=1 ;;
+      *) need='result isError=false .*PTY_M6_OK' ; n=2 ;;
+    esac
+    got=$(grep -c "M3-TOOL $need" "$OUT/m6.inspect")
+    if [ $m6 -eq 0 ] && [ "$got" -ge $n ]; then v=ok; else v=fail; fi
+    echo "M6 $sc verdict=$v (exit=$m6 matching-results=$got/$n)"
+  done
+
+  # Terminal: echo, resize, activity and close through dsh-subprocess-local, as the Web terminal controller uses it.
+  W="$TMPDIR/oh-m6-term"; mkdir -p "$W"
+  timeout 120 "$NODE" "$ROOT/tree/oh/m6-terminal.mjs" "$ROOT/tree" "$W" >"$OUT/m6t.out" 2>&1; t=$?
+  sed 's/^/M6 /' "$OUT/m6t.out" | head -40
+  echo "M6 terminal verdict=$([ $t -eq 0 ] && echo ok || echo fail) (failures=$t)"
+
+  # Image attachments: sharp loads through its @img/sharp-wasm32 fallback and resizes once.
+  ( cd "$ROOT/tree" && "$NODE" -e '
+    const s = require("sharp")
+    s({ create: { width: 64, height: 48, channels: 3, background: "#f00" } }).png().toBuffer()
+      .then((b) => s(b).resize(16).jpeg().toBuffer({ resolveWithObject: true }))
+      .then((r) => console.log(`sharp ok vips=${s.versions.vips} out=${r.info.format} ${r.info.width}x${r.info.height}`))
+      .catch((e) => { console.log(`sharp fail ${e.message.split("\n")[0]}`); process.exitCode = 1 })' ) 2>&1 | sed 's/^/M6 /'
+
+  # Web: start the web profile on loopback, sign in with the startup token, fetch / and stop the server.
+  W="$TMPDIR/oh-m6-web"; H="$W.home"; rm -rf "$W" "$H"; mkdir -p "$W" "$H"
+  ( cd "$W" && DSH_HOME="$H" exec timeout 300 sh "$ROOT/bin/dsh" --profile web --host 127.0.0.1 --port "$PORT" --no-open \
+    >"$OUT/web.out" 2>"$OUT/web.err" ) &
+  url=''; i=0
+  while [ $i -lt 90 ] && [ -z "$url" ]; do sleep 1; i=$((i + 1)); url=$(sed -n 's/^dsh web: //p' "$OUT/web.out"); done
+  echo "M6 web startup-seconds=$i url=${url%%\?*}"
+  anon=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/")
+  login=$(curl -s -c "$OUT/jar" -o /dev/null -w '%{http_code}' "$url")
+  code=$(curl -s -b "$OUT/jar" -o "$OUT/index.html" -w '%{http_code}' "http://127.0.0.1:$PORT/")
+  echo "M6 web anonymous=$anon token-login=$login root=$code bytes=$(wc -c <"$OUT/index.html") title=$(grep -o '<title>[^<]*' "$OUT/index.html" | head -1)"
+  pid=$(ps -ef | grep -v grep | grep "lib/bin.js .*--port $PORT" | awk '{print $2}' | head -1)
+  [ -z "$pid" ] || kill "$pid"; wait
+  head -20 "$OUT/web.err" | sed 's/^/M6 web stderr: /'
+  if [ "$code" = 200 ]; then v=ok; else v=fail; fi
+  echo "M6 web verdict=$v"
 fi
 rm -rf "$OUT"
 exit $rc

@@ -3,13 +3,14 @@
 # self-signed OHOS addons, and sweep the tree's ELF files.
 #
 # Usage: pack-tree.sh [--no-build] <dsh-checkout> <natives-dir> <out>
-#   <natives-dir>  output of build-natives.sh (uses <natives-dir>/signed/*.node)
+#   <natives-dir>  output of build-natives.sh (uses <natives-dir>/signed/*.node and signed/rg)
 #   <out>/pack/{npm,npm-vendor,npm-landlock}/*.tgz   release:pack output (same steps as .github/workflows/release.yml)
 #   <out>/pack/npm-ohos/*.tgz                        the flock platform package for openharmony-arm64 (signed system.node)
 #   <out>/tree/                                      the device tree (package.json + flat node_modules, no symlinks)
 #   <out>/tree/oh/                                   SHA256SUMS of placed addons, ELF sweep report, device-smoke.cjs,
 #                                                    openharmony.patch.yml (device overlay the launcher applies),
-#                                                    m3-replay.patch.yml + m3-inspect.cjs + m3/<scenario>/ (keyless M3)
+#                                                    m3-replay.patch.yml + m3-inspect.cjs + m3/<scenario>/ (keyless M3),
+#                                                    m6-replay.patch.yml + m6-terminal.mjs + m6/<scenario>/ (keyless M6)
 #   --no-build  reuse the checkout's existing build:artifacts output (release:pack still checks its record)
 #
 # The install mirrors scripts/release/verify-packed-install.ts: every tarball comes from file: URLs, platform
@@ -20,7 +21,11 @@ BUILD=1
 [ "${1:-}" = --no-build ] && { BUILD=0; shift; }
 [ $# -eq 3 ] || die "usage: pack-tree.sh [--no-build] <dsh-checkout> <natives-dir> <out>"
 DSH=$(cd "$1" && pwd); NAT=$(cd "$2/signed" && pwd); mkdir -p "$3"; OUT=$(cd "$3" && pwd)
-for f in require_builtin system pty koffi; do [ -f "$NAT/$f.node" ] || die "missing $NAT/$f.node (run build-natives.sh)"; done
+for f in require_builtin.node system.node pty.node koffi.node rg; do [ -f "$NAT/$f" ] || die "missing $NAT/$f (run build-natives.sh)"; done
+# sharp has no openharmony prebuild; its loader's last fallback is @img/sharp-wasm32 (no native code, nothing to sign),
+# which no install edge pulls in. Install it at the version the checkout's lockfile pins.
+SHARP_WASM=$(sed -n "s/^  '@img\/sharp-wasm32@\([^']*\)':\$/\1/p" "$DSH/pnpm-lock.yaml" | sort -u)
+[ "$(printf '%s\n' "$SHARP_WASM" | wc -l)" = 1 ] && [ -n "$SHARP_WASM" ] || die "expected one @img/sharp-wasm32 version in pnpm-lock.yaml, got [$SHARP_WASM]"
 NSP=$DSH/native/system/packages/openharmony-arm64
 [ -f "$NSP/package.json" ] || die "$DSH has no native/system/packages/openharmony-arm64 (the flock platform package)"
 
@@ -52,9 +57,9 @@ rm -rf "$PACK"; mkdir -p "$PACK"
 TREE=$OUT/tree
 rm -rf "$TREE"; mkdir -p "$TREE/oh"
 # Consumer manifest: compatible tarballs are dependencies, foreign-platform ones optional (then omitted).
-node - "$TREE/package.json" "$PACK/npm" "$PACK/npm-vendor" "$PACK/npm-landlock" <<'EOF'
+node - "$TREE/package.json" "$SHARP_WASM" "$PACK/npm" "$PACK/npm-vendor" "$PACK/npm-landlock" <<'EOF'
 const { execFileSync } = require('node:child_process'), fs = require('node:fs'), path = require('node:path'), url = require('node:url')
-const [out, ...dirs] = process.argv.slice(2)
+const [out, sharpWasm, ...dirs] = process.argv.slice(2)
 const accepts = (v, cur) => { if (v === undefined) return true; let ok = v.every(t => t.startsWith('!'))
   for (const t of v) { if (t === `!${cur}`) return false; if (t === cur || (t === 'any' && v.length === 1)) ok = true } return ok }
 const deps = {}, opt = {}
@@ -62,6 +67,7 @@ for (const d of dirs) for (const f of fs.readdirSync(d).filter(n => n.endsWith('
   const t = path.join(d, f), m = JSON.parse(execFileSync('tar', ['-xOzf', t, 'package/package.json'], { encoding: 'utf8' }))
   ;(accepts(m.os, 'openharmony') && accepts(m.cpu, 'arm64') ? deps : opt)[m.name] = url.pathToFileURL(t).href
 }
+deps['@img/sharp-wasm32'] = sharpWasm
 fs.writeFileSync(out, JSON.stringify({ name: 'dsh-openharmony-tree', version: '0.0.0', private: true, dependencies: deps, optionalDependencies: opt }, null, 2) + '\n')
 console.error(`[oh] consumer: ${Object.keys(deps).length} dependencies, ${Object.keys(opt).length} foreign-platform optional`)
 EOF
@@ -87,6 +93,20 @@ place() { # <package-name> <relative path inside package> <signed file>
 place node-addon-require-builtin build/napi/napi-v9-openharmony-arm64/require_builtin.node "$NAT/require_builtin.node"
 place node-pty prebuilds/openharmony-arm64/pty.node "$NAT/pty.node"
 place koffi build/koffi/openharmony_arm64/koffi.node "$NAT/koffi.node"
+# ripgrep: @vscode/ripgrep resolves `@vscode/ripgrep-${platform}-${arch}/bin/rg` from its own location; add that
+# platform package (no exports map, so the subpath resolves) beside every installed copy.
+n=0
+while IFS= read -r d; do
+  v=$(node -p 'require(process.argv[1]).version' "$d/package.json")
+  P=$(dirname "$d")/ripgrep-openharmony-arm64; rm -rf "$P"; mkdir -p "$P/bin"
+  cp "$NAT/rg" "$P/bin/rg"; chmod 755 "$P/bin/rg"
+  printf '{\n  "name": "@vscode/ripgrep-openharmony-arm64",\n  "version": "%s",\n  "description": "ripgrep for openharmony-arm64 (OHOS NDK build, self-signed by scripts/openharmony). Used by @vscode/ripgrep.",\n  "license": "MIT",\n  "os": ["openharmony"],\n  "cpu": ["arm64"]\n}\n' "$v" >"$P/package.json"
+  echo "${P#"$TREE"/}/bin/rg" >>"$TREE/oh/placed.txt"; n=$((n + 1))
+done < <(find "$TREE/node_modules" -type d -path '*/node_modules/@vscode/ripgrep' -prune)
+[ $n -gt 0 ] || die "@vscode/ripgrep not found in tree; cannot place rg"
+sv=$(node -p 'require(process.argv[1]).version' "$TREE/node_modules/sharp/package.json")
+[ "$sv" = "$SHARP_WASM" ] || die "sharp $sv in the tree but @img/sharp-wasm32 $SHARP_WASM; the wasm fallback must match sharp's version"
+
 # flock: unpack the packed @deepseek-ai/node-addon-system-openharmony-arm64 tarball into the tree. npm refuses it
 # as a direct dependency on a non-OpenHarmony build host (EBADPLATFORM; --os only filters optional edges), and the
 # entry's optional edge to it is omitted with the other optional dependencies.
@@ -115,13 +135,21 @@ log "ELF sweep: $signed signed kept, $removed unsigned removed (see oh/elf-sweep
 [ "$signed" -eq "$(wc -l <"$TREE/oh/placed.txt")" ] || die "signed ELF count $signed != placed $(wc -l <"$TREE/oh/placed.txt")"
 
 (cd "$TREE" && xargs -a oh/placed.txt sha256sum) >"$TREE/oh/SHA256SUMS"
-cp "$OH_HERE/device-smoke.cjs" "$OH_HERE/openharmony.patch.yml" "$OH_HERE/m3-replay.patch.yml" "$OH_HERE/m3-inspect.cjs" "$TREE/oh/"
+cp "$OH_HERE/device-smoke.cjs" "$OH_HERE/openharmony.patch.yml" "$OH_HERE/m3-replay.patch.yml" "$OH_HERE/m3-inspect.cjs" \
+  "$OH_HERE/m6-replay.patch.yml" "$OH_HERE/m6-terminal.mjs" "$TREE/oh/"
 # M3 fixtures (smoke.sh --m3): recorded sessions replayed by dsh-llm-replay; highest generation of each.
 for sc in bash-tool-turn fs-write; do
   S=$DSH/snapshots/session/$sc; f=$(find "$S" -maxdepth 1 -name 'session*.jsonl' | sort -V | tail -1)
   [ -n "$f" ] || die "missing fixture $S"
   mkdir -p "$TREE/oh/m3/$sc/workspace"; cp "$f" "$TREE/oh/m3/$sc/"
   [ ! -d "$S/workspace" ] || cp -r "$S/workspace/." "$TREE/oh/m3/$sc/workspace/"
+done
+# M6 fixtures (smoke.sh --m6): fs-glob-sampling (glob tool -> rg --files) and pty-tools-sandbox-backend (terminal
+# tools; m6-replay.patch.yml swaps the recorded in-memory backend for the real PTY stack).
+for sc in fs-glob-sampling pty-tools-sandbox-backend; do
+  S=$DSH/snapshots/session/$sc; f=$(find "$S" -maxdepth 1 -name 'session*.jsonl' | sort -V | tail -1)
+  [ -n "$f" ] || die "missing fixture $S"
+  mkdir -p "$TREE/oh/m6/$sc"; cp "$f" "$TREE/oh/m6/$sc/"
 done
 [ -d "$TREE/node_modules/@deepseek-ai/dsh-llm-replay/lib" ] || die "dsh-llm-replay missing from the tree (needed by smoke.sh --m3)"
 git -C "$DSH" rev-parse HEAD >"$TREE/oh/dsh-commit.txt"

@@ -25,22 +25,23 @@ $R/build-natives.sh $W/wt $W/natives
 $R/make-node.sh /mnt/linux_share/storage/Users/currentUser/hmos-clt/command-line-tools/node/bin/node $W/node
 $R/pack-tree.sh $W/wt $W/natives $W/out
 $R/deploy.sh $W/out/tree $W/node hmos
-$R/smoke.sh --m3 hmos
+$R/smoke.sh --m3 --m6 hmos
 ```
 
-On the device, run `sh /data/storage/el2/base/dsh/bin/dsh --profile headless --help`. The launcher always prepends `--patch <tree>/oh/openharmony.patch.yml`, so launcher options such as `--profile` must be written out instead of using the `dsh <name>` abbreviation.
+On the device, run `sh /data/storage/el2/base/dsh/bin/dsh --profile headless --help`, or `sh /data/storage/el2/base/dsh/bin/dsh --profile web --host 127.0.0.1 --no-open` for the Web UI. The launcher always prepends `--patch <tree>/oh/openharmony.patch.yml`, so launcher options such as `--profile` must be written out instead of using the `dsh <name>` abbreviation.
 
 ## Scripts
 
 | Script | Behavior | Fails when |
 |---|---|---|
 | `lib.sh` | Shared paths, the wait for running cargo or rustc, the `nice -n 10 taskset -c 0-2` cap, and `sign_elf` | — |
-| `build-natives.sh <dsh> <out>` | Builds require-builtin (napi-v9), node-pty, and koffi with the NDK clang (`-static-libstdc++ -z max-page-size=4096`), builds flock through the checkout's `native/system/scripts/build.ts --target openharmony-arm64`, then signs every product | A pinned version differs from the checkout's `pnpm-lock.yaml`; NEEDED names anything besides `libc.so`; a signed file lacks `.codesign`; any LOAD segment has offset ≢ vaddr (mod 4K) |
+| `build-natives.sh <dsh> <out>` | Builds require-builtin (napi-v9), node-pty, and koffi with the NDK clang (`-static-libstdc++ -z max-page-size=4096`), builds flock through the checkout's `native/system/scripts/build.ts --target openharmony-arm64`, builds the crates.io ripgrep release that `@vscode/ripgrep` ships (`cargo install --locked --features pcre2 --target aarch64-unknown-linux-ohos`, linked with the NDK's compiler-rt builtins for PCRE2 JIT), then signs every product | A pinned version differs from the checkout's `pnpm-lock.yaml`; NEEDED names anything besides `libc.so`; a signed file lacks `.codesign`; any LOAD segment has offset ≢ vaddr (mod 4K) |
 | `make-node.sh <clt-node> <out>` | Removes only `.codesign` from the vendor-signed node and self-signs it | The source has no `.permission` section, or signing drops or changes it |
-| `pack-tree.sh [--no-build] <dsh> <natives> <out>` | Runs `build:artifacts --profile official`, the three packs of `.github/workflows/release.yml`, and a `file:` tarball install modeled on `scripts/release/verify-packed-install.ts` with platform compatibility judged for `openharmony/arm64` (`npm install --ignore-scripts --omit=optional --os=openharmony --cpu=arm64`); places the addons and sweeps every ELF file | A placement target package is missing; a signed ELF has an incongruent LOAD segment; the signed ELF count differs from the placement count |
+| `pack-tree.sh [--no-build] <dsh> <natives> <out>` | Runs `build:artifacts --profile official`, the three packs of `.github/workflows/release.yml`, and a `file:` tarball install modeled on `scripts/release/verify-packed-install.ts` with platform compatibility judged for `openharmony/arm64` (`npm install --ignore-scripts --omit=optional --os=openharmony --cpu=arm64`); adds `@img/sharp-wasm32` at the lockfile's version; places the addons and the `@vscode/ripgrep-openharmony-arm64` package, and sweeps every ELF file | A placement target package is missing; a signed ELF has an incongruent LOAD segment; the signed ELF count differs from the placement count |
 | `deploy.sh <tree> <node-out> <alias>` | Refuses while hvigor or dsh runs on the device; pushes node and tree (the new tree unpacks beside the old one and replaces it with `mv`); writes `bin/oh-env.sh` and `bin/dsh`; runs `sha256sum -c` on the device | A device checksum differs |
-| `smoke.sh [--m3] <alias>` | M1 runs `device-smoke.cjs`; M2 runs `--profile headless --help`; `--m3` replays two recorded sessions | M1 or M2 fails |
-| `device-smoke.cjs` | M1 on the device: loads each addon through its package's own loader and requires the mapped file to be inside the tree | Each failed check adds one to the exit status |
+| `smoke.sh [--m3] [--m6] <alias>` | M1 runs `device-smoke.cjs`; M2 runs `--profile headless --help`; `--m3` replays two recorded sessions; `--m6` runs the search, terminal, image and Web checks | M1 or M2 fails |
+| `device-smoke.cjs` | M1 on the device: loads each addon through its package's own loader and requires the mapped file to be inside the tree; resolves `rg` through `@vscode/ripgrep` inside the tree and runs it | Each failed check adds one to the exit status |
+| `m6-terminal.mjs` | M6 on the device: spawns `/bin/sh` and `/usr/bin/zsh` terminals through `dsh-subprocess-local`, checks echo, resize and close, and prints the activity state while idle and while `sleep` runs | Each failed check adds one to the exit status |
 | `m3-inspect.cjs` | Prints the tool calls and results of the newest session log under a dsh home | No session log exists |
 
 ## Addon placement
@@ -50,6 +51,8 @@ On the device, run `sh /data/storage/el2/base/dsh/bin/dsh --profile headless --h
 | require-builtin | `node_modules/node-addon-require-builtin/build/napi/napi-v9-openharmony-arm64/require_builtin.node` | The local-build branch of `node-addon-native-custom-loader`, with `NARB_DISABLE_NATIVE_CACHE=1` |
 | node-pty | `node_modules/node-pty/prebuilds/openharmony-arm64/pty.node` | `lib/utils.js` `loadNativeModule`; no `spawn-helper` is needed |
 | koffi | `node_modules/koffi/build/koffi/openharmony_arm64/koffi.node` | `src/koffi/index.cjs` |
+| ripgrep | `node_modules/@vscode/ripgrep-openharmony-arm64/bin/rg` (package written by `pack-tree.sh`) | `@vscode/ripgrep` resolves `@vscode/ripgrep-${platform}-${arch}/bin/rg` |
+| sharp | `node_modules/@img/sharp-wasm32/` (WebAssembly, nothing to sign) | The last fallback in `sharp/dist/sharp.cjs` after the platform switch |
 | flock | `node_modules/@deepseek-ai/node-addon-system-openharmony-arm64/bin/system.node` | The `@deepseek-ai/node-addon-system/flock` entry; M1 loads the file by path. `pack-tree.sh` packs `native/system/packages/openharmony-arm64` with the signed build and unpacks the tarball into the tree, because npm refuses that package as a direct dependency on a Linux build host |
 
 ## Device environment
@@ -63,11 +66,15 @@ On the device, run `sh /data/storage/el2/base/dsh/bin/dsh --profile headless --h
 | `SHELL` | `/bin/sh` | The sandbox has no bash and no passwd entry, so `os.userInfo()` throws |
 | `DSH_HOME` / `DSH_AGENTS_HOME` | `/data/storage/el2/base/dsh-home` / `dsh-agents` (defaults) | Home directories cannot hold hard links and read `0600` back as `0640` |
 
-`openharmony.patch.yml` sets the bash tool's `shellPath` to `/bin/sh`, because the device has mksh at `/bin/sh` and no bash.
+`openharmony.patch.yml` sets the bash tool's `shellPath` to `/bin/sh`, because the device has mksh at `/bin/sh` and no bash. It also sets the Web workspace controller's `documentsDirectory` to `/data/storage/el2/base/dsh-documents`, because the controller looks up the Documents directory only on macOS, Windows and Linux; profiles without that row ignore it.
 
 ## M3 replay
 
 `smoke.sh --m3` replays two recorded sessions from `snapshots/session/` through `dsh-llm-replay` (`m3-replay.patch.yml`), so no credential is placed on the device and no request leaves it. `bash-tool-turn` runs one bash-tool command through `shellPath`; `fs-write` creates a new file with the write tool. Each run prints `verdict=ok` only when dsh exits 0, every tool call in the newest session log succeeded, and the session lock file exists beside the log.
+
+## M6 checks
+
+`smoke.sh --m6` runs `rg` from the tree against a fixed match; replays `fs-glob-sampling` (glob tool, `rg --files`) and `pty-tools-sandbox-backend` with `m6-replay.patch.yml`, which replaces the recorded in-memory terminal backend with the real `dsh-terminal-bash` stack whose shell prints `PTY_M6_OK`; runs `m6-terminal.mjs`; resizes one image through sharp; and starts the web profile on `127.0.0.1:$M6_PORT` (default 3999), signs in with the startup token, requests `/`, and stops the server. Each part prints its own `verdict=` line; the Web part passes on HTTP 200.
 
 ## Constraints
 

@@ -1,4 +1,4 @@
-// M1 device smoke: load each OHOS addon placed by pack-tree.sh and exercise it once.
+// M1 device smoke: load each OHOS addon placed by pack-tree.sh and exercise it once; run the placed rg once.
 // Run on the device under the self-signed node, with TMPDIR under /data/storage/el2/base:
 //   NARB_DISABLE_NATIVE_CACHE=1 <dsh>/node/bin/node <dsh>/tree/oh/device-smoke.cjs <dsh>/tree
 // Output: one `SMOKE <name> ok|fail <detail> mapped=<file>` line per check, then `SMOKE-SUMMARY ok=<n> fail=<n>`.
@@ -41,6 +41,14 @@ async function step(name, file, fn) {
     t.onExit(({ exitCode, signal }) => { clearTimeout(timer); out.includes('pty-ok') && exitCode === 0 ? resolve(`exit=${exitCode} sig=${signal} out=${JSON.stringify(out.trim())}`) : reject(new Error(`exit=${exitCode} out=${JSON.stringify(out)}`)) })
   }))
   await step('koffi', 'koffi.node', () => { const k = treeRequire('koffi'); return `version=${k.version}` })
+  // ripgrep is an executable, not an addon: resolve it the way tool-fs-search does (@vscode/ripgrep's rgPath),
+  // require the path inside the tree, and run it once.
+  try {
+    const { rgPath } = await import(treeRequire.resolve('@vscode/ripgrep'))
+    if (!rgPath.startsWith(tree + '/')) throw Object.assign(new Error(`rgPath=${rgPath} is not inside ${tree}`), { code: 'WRONG_VARIANT' })
+    const v = require('node:child_process').execFileSync(rgPath, ['--version'], { encoding: 'utf8' }).split('\n')[0]
+    console.log(`SMOKE rg ok ${v} path=${rgPath}`); ok++
+  } catch (e) { console.log(`SMOKE rg fail ${(e && e.code) || ''} ${e && e.message}`); fail++ }
   console.log(`SMOKE-SUMMARY ok=${ok} fail=${fail}`)
   process.exitCode = fail
 })()

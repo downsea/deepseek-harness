@@ -3,14 +3,16 @@
 # check PT_LOAD congruence after signing, and write a sha256 manifest.
 #
 # Usage: build-natives.sh <dsh-checkout> <out>
-#   <out>/unsigned/*.node   NDK build output
-#   <out>/signed/*.node     self-signed copies (what pack-tree.sh places)
-#   <out>/SHA256SUMS        sha256 of signed/*.node
+#   <out>/unsigned/*.node, unsigned/rg   NDK / cargo build output
+#   <out>/signed/*.node, signed/rg       self-signed copies (what pack-tree.sh places)
+#   <out>/SHA256SUMS        sha256 of signed/*
 #   <out>/readings.txt      NEEDED / .codesign / PT_LOAD per signed file
 #   <out>/src/              fetched third-party sources (reused on re-runs)
+#   <out>/rg-target/        cargo target dir for ripgrep (reused on re-runs)
 #
 # Products: node-addon-require-builtin (napi-v9), @deepseek-ai/node-addon-system flock (system.node),
-# node-pty (pty.node; no spawn-helper on Linux/OHOS), koffi (koffi.node).
+# node-pty (pty.node; no spawn-helper on Linux/OHOS), koffi (koffi.node), and the ripgrep executable `rg`
+# that @vscode/ripgrep resolves as @vscode/ripgrep-openharmony-arm64/bin/rg.
 # Versions are pinned below and checked against <dsh-checkout>/pnpm-lock.yaml; a drift fails the run.
 . "$(dirname "$0")/lib.sh"
 [ $# -eq 2 ] || die "usage: build-natives.sh <dsh-checkout> <out>"
@@ -23,12 +25,14 @@ NODE_PTY_VERSION=1.2.0-beta.15
 KOFFI_VERSION=3.1.1
 NAA_NARB=8.9.0   # node-addon-api used by require-builtin
 NAA_PTY=7.1.1    # node-addon-api used by node-pty
+VSCODE_RG_VERSION=1.18.0 RG_VERSION=15.0.0   # @vscode/ripgrep 1.18.0 ships ripgrep 15.0.0 (+pcre2)
 # Node headers must match the device's node; default to the device CLT's own include dir over virtiofs.
 NODE_INCLUDE="${NODE_INCLUDE:-$DEVICE_CLT/node/include/node}"
 [ -f "$NODE_INCLUDE/node_api.h" ] || die "no node_api.h under $NODE_INCLUDE (set NODE_INCLUDE)"
 
 lock=$DSH/pnpm-lock.yaml
-for pin in "node-addon-require-builtin@$NARB_VERSION" "node-pty@$NODE_PTY_VERSION" "koffi@$KOFFI_VERSION"; do
+for pin in "node-addon-require-builtin@$NARB_VERSION" "node-pty@$NODE_PTY_VERSION" "koffi@$KOFFI_VERSION" \
+  "'@vscode/ripgrep@$VSCODE_RG_VERSION'"; do
   grep -q "^  $pin" "$lock" || die "$pin not in $lock; update the pins in $(basename "$0")"
 done
 NS_BUILD=$DSH/native/system/scripts/build.ts
@@ -91,6 +95,24 @@ k=$(find "$KW/build" -name koffi.node -newer "$KW/package.json" | head -1)
 [ -n "$k" ] || die "koffi build produced no koffi.node"
 cp "$k" "$UNS/koffi.node"
 
+# --- ripgrep: the crates.io release with its own Cargo.lock and the upstream feature set (+pcre2). The OHOS
+# target enables PCRE2 JIT (pcre2-sys turns it off only for musl/android/ios targets), and sljit calls
+# __clear_cache, which rustc's -nodefaultlibs link leaves undefined; link the NDK's compiler-rt builtins for it.
+# cargo goes through the host build slot (CARGO_BUILD_JOBS=3, CPUs 0-2).
+log "build ripgrep $RG_VERSION (cargo, aarch64-unknown-linux-ohos)"
+RT_BUILTINS=$(find "$NDK/llvm/lib/clang" -path '*/aarch64-linux-ohos/libclang_rt.builtins.a' | head -1)
+[ -n "$RT_BUILTINS" ] || die "no aarch64-linux-ohos libclang_rt.builtins.a under $NDK/llvm/lib/clang"
+(
+  export CARGO_TARGET_DIR="$OUT/rg-target" CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 \
+    CC_aarch64_unknown_linux_ohos="$OHOS_CC" AR_aarch64_unknown_linux_ohos="$LLVM/llvm-ar" \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER="$OHOS_CC" \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_RUSTFLAGS="-C strip=symbols -C link-arg=-Wl,-z,max-page-size=4096 -C link-arg=$RT_BUILTINS"
+  rustc --version
+  "${CAP[@]}" cargo install --locked ripgrep --version "$RG_VERSION" --features pcre2 \
+    --target aarch64-unknown-linux-ohos --root "$OUT/rg-root" --no-track --force
+) >"$OUT/rg-build.log" 2>&1 || { tail -30 "$OUT/rg-build.log" >&2; die "ripgrep build failed (log $OUT/rg-build.log)"; }
+cp "$OUT/rg-root/bin/rg" "$UNS/rg"
+
 # --- sign + check every product.
 rm -rf "$SIG"; mkdir -p "$SIG"
 : >"$OUT/readings.txt"
@@ -100,6 +122,9 @@ for f in require_builtin system pty koffi; do
   sign_elf "$u" "$s"
   { echo "== $f.node size=$(stat -c %s "$s") NEEDED=[$(needed_of "$s")] codesign=yes"; check_load_align "$s"; } >>"$OUT/readings.txt"
 done
-(cd "$SIG" && sha256sum ./*.node) >"$OUT/SHA256SUMS"
+n=$(needed_of "$UNS/rg"); [ "$n" = "libc.so " ] || die "rg NEEDED [$n], expected only libc.so"
+sign_elf "$UNS/rg" "$SIG/rg"; chmod 755 "$SIG/rg"
+{ echo "== rg size=$(stat -c %s "$SIG/rg") NEEDED=[$(needed_of "$SIG/rg")] codesign=yes $(grep -m1 '^rustc ' "$OUT/rg-build.log")"; check_load_align "$SIG/rg"; } >>"$OUT/readings.txt"
+(cd "$SIG" && sha256sum ./*.node ./rg) >"$OUT/SHA256SUMS"
 cat "$OUT/readings.txt" "$OUT/SHA256SUMS"
 log "natives ready in $SIG"
