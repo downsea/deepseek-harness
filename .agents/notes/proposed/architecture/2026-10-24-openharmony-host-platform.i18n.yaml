@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for 2026-10-24-openharmony-host-platform.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-10-24-openharmony-host-platform.md
+/agent-note-openharmony-as-a-host-platform:
+  en: b56a9bf4680802e0
+  zh: bb52f757feeb9f69
+/agent-note-openharmony-as-a-host-platform/problem:
+  en: 42e7291b2e4c6023
+  zh: 70c011d2fbb339b7
+/agent-note-openharmony-as-a-host-platform/proposal:
+  en: 986dd8097aac4d3d
+  zh: 2c89af85628555c5
+/agent-note-openharmony-as-a-host-platform/proposal/platform-name:
+  en: 8376b24fcff21181
+  zh: 519ab015a0c31ea0
+/agent-note-openharmony-as-a-host-platform/proposal/flock-platform-package:
+  en: 025b3d819a0a7461
+  zh: 9d1e9a25ad93cf42
+/agent-note-openharmony-as-a-host-platform/proposal/configurable-shell-executable:
+  en: 9fc767ad35823057
+  zh: 2ec88c7ee30a946c
+/agent-note-openharmony-as-a-host-platform/proposal/model-visible-text-is-unchanged:
+  en: a023f6436e86eef7
+  zh: 8a790967646edb9e
+/agent-note-openharmony-as-a-host-platform/proposal/missing-account-record:
+  en: c56dd9db9bec4720
+  zh: d450e1329273cc5e
+/agent-note-openharmony-as-a-host-platform/alternatives-considered:
+  en: 72ea114004f7ae72
+  zh: 037fc05cd3529e3e
+/agent-note-openharmony-as-a-host-platform/acceptance-criteria:
+  en: 595456cdcc02af88
+  zh: b66b82de9b220f6c
+/agent-note-openharmony-as-a-host-platform/risks:
+  en: b819de6d47847384
+  zh: 565030d9448a4c69

@@ -1,7 +1,7 @@
 /**
  * Local Service Provider for the bash capability seam over the subprocess
- * capability seam. Public commands run as `bash -c` in a provider-managed range
- * through `ctx.subprocess`; subclasses may reuse the same mechanics with an
+ * capability seam. Public commands run as `<shellPath> -c` (default `bash -c`)
+ * in a provider-managed range through `ctx.subprocess`; subclasses may reuse the same mechanics with an
  * explicit argv. This executor owns command defaulting, deadlines and cause
  * classification, the model-friendly terminal environment, and the model-facing
  * stdout/stderr merge for background reads. Execution policy belongs in
@@ -10,10 +10,11 @@
  */
 
 import type { Volatile } from '@deepseek-ai/cordis'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellExecution, ShellProcess, ShellProcessRead, ShellRunResult, CollectedOutput } from '@deepseek-ai/dsh-shell'
+import { SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
 
@@ -51,6 +52,12 @@ export interface Config {
   maxSpillBytes: Volatile<number>
   /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs: Volatile<number>
+  /**
+   * Shell executable that runs each command as `<shellPath> -c <command>`
+   * (default `bash`): an absolute path or a bare name looked up on the
+   * subprocess provider's PATH. The value is passed as argv[0] unchanged.
+   */
+  shellPath: Volatile<string>
 }
 
 /** Project a settled collect-mode reader into the final CollectedOutput shape. */
@@ -85,6 +92,13 @@ export function assertServiceableBashConfig(config: Config): void {
   if (config.graceMs.get() > MAX_TIMER_DELAY_MS) {
     throw new Error(`bash-local: graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
+  assertShellPath(config.shellPath.get())
+}
+
+function assertShellPath(shellPath: string): void {
+  if (shellPath.length === 0) {
+    throw new Error('bash-local: shellPath must be a non-empty executable path or PATH name')
+  }
 }
 
 /**
@@ -104,10 +118,59 @@ export class LocalBashExecutor extends ShellExecutor {
     maxOutputBytes: z.number().default(64_000).volatile(),
     maxSpillBytes: z.number().default(DEFAULT_MAX_SPILL_BYTES).volatile(),
     graceMs: z.number().default(DEFAULT_GRACE_MS).volatile(),
+    shellPath: z.string().default('bash').volatile(),
   })
+
+  /** The last `shellPath` value the subprocess provider resolved to an executable. */
+  private verifiedShellPath: string | undefined
 
   constructor(ctx: Context, readonly config: Config) {
     super(ctx)
+  }
+
+  /**
+   * Fail plugin load when the configured shell does not resolve to an
+   * executable through `ctx.subprocess`; a later change is verified by the
+   * next command's preparation.
+   */
+  protected async [Service.init](): Promise<void> {
+    await this.verifyShellPath()
+  }
+
+  /**
+   * Build the argv that runs one command through the configured shell.
+   * @param command - shell source passed after `-c`.
+   * @param signal - cancellation of executable lookup.
+   * @returns `[shellPath, '-c', command]`, with `shellPath` as configured.
+   * @throws as {@link verifyShellPath}.
+   */
+  protected async shellArgv(command: string, signal?: AbortSignal): Promise<string[]> {
+    return [await this.verifyShellPath(signal), '-c', command]
+  }
+
+  /**
+   * Return the configured `shellPath`, first resolving a value the provider
+   * has not resolved yet. Only a successful lookup is remembered.
+   * @throws Error for an empty value; SubprocessExecutableNotFoundError naming
+   *   `shellPath` when the provider finds no executable; other provider lookup
+   *   and cancellation failures unchanged.
+   */
+  private async verifyShellPath(signal?: AbortSignal): Promise<string> {
+    const shellPath = this.config.shellPath.get()
+    assertShellPath(shellPath)
+    if (shellPath !== this.verifiedShellPath) {
+      try {
+        await this.ctx.subprocess.resolveExecutable(shellPath, undefined, signal)
+      } catch (error) {
+        if (!(error instanceof SubprocessExecutableNotFoundError)) throw error
+        throw new SubprocessExecutableNotFoundError(
+          `bash-local: shellPath ${JSON.stringify(shellPath)} does not name an executable: ${error.message}`,
+          { cause: error },
+        )
+      }
+      this.verifiedShellPath = shellPath
+    }
+    return shellPath
   }
 
   /**
@@ -185,22 +248,24 @@ export class LocalBashExecutor extends ShellExecutor {
   }
 
   async execute(spec: ShellExecSpec): Promise<ShellExecution> {
-    return this.executeArgv(spec, ['bash', '-c', spec.command])
+    return this.executeArgv(spec, signal => this.shellArgv(spec.command, signal))
   }
 
   /**
-   * Execute an explicit argv with the lifecycle, environment, output,
+   * Execute a prepared argv with the lifecycle, environment, output,
    * deadline, and cancellation semantics of this executor. Subclasses use this
    * after replacing the public command's shell argv at an execution boundary.
+   * Preparation runs under the execution deadline: its expiry yields a settled
+   * timed-out handle, while its other failures reject.
    * @param spec - resolved execution settings and caller-owned command metadata.
-   * @param argvOrPrepare - exact argv, or preparation using the execution cancellation signal.
+   * @param prepare - produces the exact argv using the execution cancellation signal.
    * @param onStarted - installs provider facts synchronously before the handle can settle.
    * @returns the live execution handle; spawn rejection settles the handle as
    *   killed while `result()` carries the same failure as its rejection.
    */
   protected async executeArgv(
     spec: ShellExecSpec,
-    argvOrPrepare: readonly string[] | ((signal: AbortSignal) => Promise<readonly string[]>),
+    prepare: (signal: AbortSignal) => Promise<readonly string[]>,
     onStarted?: (process: ShellExecution) => void,
   ): Promise<ShellExecution> {
     // Deadline wiring by expiry policy. Each arm supplies the spawn signal,
@@ -228,27 +293,25 @@ export class LocalBashExecutor extends ShellExecutor {
 
     let argv: readonly string[] = []
     let preparationTimedOut = false
-    if (typeof argvOrPrepare === 'function') {
-      const signal = spawnSignal ?? new AbortController().signal
-      const cancelled = Promise.withResolvers<never>()
-      const abort = (): void => { cancelled.reject(signal.reason) }
-      signal.addEventListener('abort', abort, { once: true })
-      try {
-        argv = await Promise.race([
-          Promise.resolve().then(() => { signal.throwIfAborted(); return argvOrPrepare(signal) }),
-          cancelled.promise,
-        ])
-        signal.throwIfAborted()
-      } catch (error) {
-        if (!classify().timedOut) {
-          disarm()
-          throw error
-        }
-        preparationTimedOut = true
-      } finally { signal.removeEventListener('abort', abort) }
-    } else { argv = argvOrPrepare }
+    const prepareSignal = spawnSignal ?? new AbortController().signal
+    const cancelled = Promise.withResolvers<never>()
+    const abort = (): void => { cancelled.reject(prepareSignal.reason) }
+    prepareSignal.addEventListener('abort', abort, { once: true })
+    try {
+      argv = await Promise.race([
+        Promise.resolve().then(() => { prepareSignal.throwIfAborted(); return prepare(prepareSignal) }),
+        cancelled.promise,
+      ])
+      prepareSignal.throwIfAborted()
+    } catch (error) {
+      if (!classify().timedOut) {
+        disarm()
+        throw error
+      }
+      preparationTimedOut = true
+    } finally { prepareSignal.removeEventListener('abort', abort) }
 
-    // A synchronous spawn throw (pre-aborted signal, alternative subprocess
+    // A synchronous spawn throw (invalid spec, alternative subprocess
     // implementations) is contained into the same settled-killed shape as an
     // asynchronous spawn rejection, so execute() itself never throws for a
     // spawn problem and result() carries the failure uniformly.

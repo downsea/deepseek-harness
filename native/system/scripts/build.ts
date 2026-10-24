@@ -2,6 +2,10 @@
  * Build this host's declared system binaries. Landlock is a static musl
  * executable; flock uses stable Node-API with separate Linux libc builds.
  * Node headers come from the Node installation running this script.
+ *
+ * `--target openharmony-arm64 --ohos-ndk <native dir>` instead cross-builds
+ * that platform package's flock addon with the OpenHarmony NDK clang. Node-API
+ * headers do not vary by platform, so the running Node's headers serve it too.
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
@@ -9,8 +13,20 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 const root = resolve(import.meta.dirname, '..')
-const { values } = parseArgs({ options: { 'host-addon-only': { type: 'boolean' } }, allowPositionals: false })
+const { values } = parseArgs({
+  options: { 'host-addon-only': { type: 'boolean' }, target: { type: 'string' }, 'ohos-ndk': { type: 'string' } },
+  allowPositionals: false,
+})
 const hostAddonOnly = values['host-addon-only'] === true
+/** Cross targets this script can build, keyed by prebuilds.json `platform`. */
+const CROSS_TARGETS = new Set(['openharmony-arm64'])
+const cross = values.target
+if (cross !== undefined && !CROSS_TARGETS.has(cross)) throw new Error(`build: unsupported --target ${cross}`)
+if (cross !== undefined && hostAddonOnly) throw new Error('build: --target and --host-addon-only are mutually exclusive')
+if ((cross === undefined) !== (values['ohos-ndk'] === undefined)) {
+  throw new Error('build: --target openharmony-arm64 and --ohos-ndk <OpenHarmony NDK native directory> must be given together')
+}
+const ndk = values['ohos-ndk'] === undefined ? undefined : resolve(values['ohos-ndk'])
 const sources: Record<string, string> = {
   'landlock-run': 'packages/entry/src/main.c',
   flock: 'packages/entry/src/flock.c',
@@ -24,12 +40,12 @@ interface Binary {
   libc?: string
 }
 
-if (process.platform !== 'linux' && process.platform !== 'darwin') {
+if (cross === undefined && process.platform !== 'linux' && process.platform !== 'darwin') {
   if (hostAddonOnly) process.exit(0)
   throw new Error('build: system binaries are built on Linux or macOS; no native target for this host')
 }
-const host = `${process.platform}-${process.arch}`
-const libc = process.platform === 'linux'
+const host = cross ?? `${process.platform}-${process.arch}`
+const libc = cross === undefined && process.platform === 'linux'
   ? ((process.report.getReport() as { header: { glibcVersionRuntime?: string } }).header.glibcVersionRuntime ? 'glibc' : 'musl')
   : undefined
 const headers = resolve(dirname(process.execPath), '../include/node')
@@ -60,7 +76,16 @@ for (const name of readdirSync(join(root, 'packages')).sort()) {
       }
       compiler = process.platform === 'linux' && binary.libc === 'musl' ? 'musl-gcc' : 'cc'
       flags = ['-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC', '-fvisibility=hidden', '-DNAPI_VERSION=8', '-I', headers]
-      if (process.platform === 'darwin') {
+      if (ndk !== undefined) {
+        // OpenHarmony has one libc (OHOS musl, soname libc.so). The flags are the NDK's
+        // aarch64-unknown-linux-ohos-clang wrapper; 4 KiB pages keep PT_LOAD offsets
+        // congruent to addresses, which the OpenHarmony binary signer requires.
+        if (binary.libc !== undefined) throw new Error('build: OpenHarmony flock does not select a libc')
+        compiler = join(ndk, 'llvm', 'bin', 'clang')
+        if (!existsSync(compiler)) throw new Error(`build: OpenHarmony NDK clang missing at ${compiler}`)
+        flags.unshift('-target', 'aarch64-linux-ohos', `--sysroot=${join(ndk, 'sysroot')}`, '-D__MUSL__')
+        flags.push('-shared', '-s', '-Wl,-z,max-page-size=4096')
+      } else if (process.platform === 'darwin') {
         if (binary.libc !== undefined) throw new Error('build: macOS flock does not select a Linux libc')
         flags.push('-bundle', '-undefined', 'dynamic_lookup', '-mmacosx-version-min=11.0')
       } else {

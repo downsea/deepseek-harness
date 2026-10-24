@@ -40,9 +40,16 @@ node native/system/scripts/pack-release.mjs native/system/.release/npm --current
 node native/system/scripts/verify-packed-install.mjs native/system/.release/npm --current-platform-only
 ```
 
+For the OpenHarmony package, cross-build on a Linux host with the OpenHarmony NDK, verify the payload format, then sign the addon with the OpenHarmony binary signer and run a `tryLockExclusive` exclusion and close-release smoke on an OpenHarmony arm64 device before publishing; no hosted runner can load it:
+
+```sh
+pnpm --dir native/system build:native --target openharmony-arm64 --ohos-ndk <OpenHarmony SDK>/native
+node native/system/scripts/verify-launcher-binary.mjs packages/openharmony-arm64
+```
+
 ## Publish
 
-Use the main repository's `Node Addon System Release` workflow so every binary is built on its matching native runner:
+Use the main repository's `Node Addon System Release` workflow so every binary is built on its matching native runner, or cross-built for OpenHarmony:
 
 1. Run it with `publish=false` (from the release commit) to build all platform binaries, assemble and verify the payloads, pack the tarballs in publish order, rehearse the packed install, and upload the `npm-tarballs` artifact for inspection.
 2. Create and push the `node-addon-system-vX.Y.Z` tag matching the package versions.

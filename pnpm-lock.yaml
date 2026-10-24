@@ -1231,10 +1231,15 @@ importers:
       '@deepseek-ai/node-addon-system-linux-x64':
         specifier: workspace:~
         version: link:../linux-x64
+      '@deepseek-ai/node-addon-system-openharmony-arm64':
+        specifier: workspace:~
+        version: link:../openharmony-arm64
 
   native/system/packages/linux-arm64: {}
 
   native/system/packages/linux-x64: {}
+
+  native/system/packages/openharmony-arm64: {}
 
   packages/acp/acp:
     dependencies:

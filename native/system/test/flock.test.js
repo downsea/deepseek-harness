@@ -187,6 +187,12 @@ for (const platform of ['win32', 'freebsd']) {
   });
 }
 
+test('OpenHarmony arm64 selects its platform package addon without a libc directory', { timeout }, async (t) => {
+  const scope = resources(t);
+  const child = await childFixture(t, scope, 'flock-openharmony.js');
+  cleanExit(await child.waitForExit());
+});
+
 test('acquisition resolves asynchronously to void and the same fd can reacquire', nativeOnly, async (t) => {
   const scope = resources(t);
   const owner = scope.open();

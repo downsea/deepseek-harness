@@ -20,6 +20,6 @@ The JSONL backend retains its inode check, materialization timing, and close lif
 
 ## Builds and release
 
-Repository builds and `build:bench` explicitly build the host addon before running consumers. Each platform builds natively on its CI runner. Landlock is static-musl; Linux addons are separately built for glibc and musl, and macOS uses a Mach-O bundle. Stable Node-API removes the Node-major build dimension, not OS, CPU, or libc differences. CI exercises identical addon bytes under Node 20, 22, 24, and 26; Linux also runs the musl addon in Alpine containers.
+Repository builds and `build:bench` explicitly build the host addon before running consumers. Each platform builds natively on its CI runner, except OpenHarmony, which no hosted runner executes: a Linux runner cross-builds it with the OpenHarmony NDK. Landlock is static-musl; Linux addons are separately built for glibc and musl, and macOS uses a Mach-O bundle. Stable Node-API removes the Node-major build dimension, not OS, CPU, or libc differences. CI exercises identical addon bytes under Node 20, 22, 24, and 26; Linux also runs the musl addon in Alpine containers.
 
 Platform prepack validates file formats, architecture, payload completeness, and Node-API exports. The packed-install rehearsal installs local tarballs, checks their bytes, and exercises the installed mechanisms. Missing capabilities fail explicitly; no consumer install runs a compiler. [Packaging](packaging.md) and [release](release.md) own the operational details.

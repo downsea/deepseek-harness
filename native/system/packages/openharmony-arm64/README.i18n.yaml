@@ -1,0 +1,10 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write native/system/packages/openharmony-arm64/README.md
+/:
+  en: 0775c52193a0c9be
+  zh: a71213d4c6bc576e
+/deepseek-ai-node-addon-system-openharmony-arm64:
+  en: 801405c397b63b57
+  zh: ea920537afd00774

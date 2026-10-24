@@ -47,11 +47,63 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       ci: ${{ steps.matrix.outputs.ci }}
+      cross: ${{ steps.matrix.outputs.cross }}
     steps:
       - uses: actions/checkout@v7.0.1
 
       - id: matrix
-        run: echo "ci=$(node ./scripts/github-matrix.mjs ci)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "ci=$(node ./scripts/github-matrix.mjs ci)" >> "$GITHUB_OUTPUT"
+          echo "cross=$(node ./scripts/github-matrix.mjs cross)" >> "$GITHUB_OUTPUT"
+
+  # No hosted runner executes OpenHarmony binaries: this leg proves the cross
+  # build and the payload format; device verification is the support matrix's
+  # named owner.
+  cross:
+    name: ${{ matrix.platform }} (cross)
+    needs: matrix
+    if: ${{ needs.matrix.outputs.cross != '{"include":[]}' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.matrix.outputs.cross) }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v5.0.0
+        with:
+          package_json_file: package.json
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --filter @deepseek-ai/node-addon-system-workspace... --frozen-lockfile
+
+      - name: Install the OpenHarmony NDK
+        id: ohos
+        if: matrix.cross == 'openharmony'
+        uses: openharmony-rs/setup-ohos-sdk@v1.0.1
+        with:
+          version: '5.0.0'
+          components: native
+
+      - name: Build TypeScript
+        run: pnpm build:ts
+
+      - name: Cross-build native binaries
+        run: pnpm build:native --target ${{ matrix.platform }} --ohos-ndk "$OHOS_NDK"
+        env:
+          OHOS_NDK: ${{ steps.ohos.outputs.ohos_sdk_native }}
+
+      - name: Verify the cross-built payload format
+        run: node ./scripts/verify-launcher-binary.mjs ${{ matrix.dir }}
+
+      - name: Verify platform payload rules
+        run: pnpm test:packaging
 
   native:
     name: ${{ matrix.platform }}

@@ -87,6 +87,26 @@ describe('LocalSubprocessRuntime', () => {
       await expect(ctx.subprocess.terminalEnvironment()).resolves.toEqual({ platform: 'posix' })
       loginShell = null
       await expect(ctx.subprocess.terminalEnvironment()).resolves.toEqual({ platform: 'posix' })
+      // A uid without an account-database entry (OpenHarmony app sandboxes) has no login shell.
+      const systemError = (code: string) => Object.assign(
+        new Error(`A system error occurred: uv_os_get_passwd returned ${code}`),
+        { code: 'ERR_SYSTEM_ERROR', info: { code, syscall: 'uv_os_get_passwd' } },
+      )
+      userInfo.mockImplementationOnce(() => { throw systemError('ENOENT') })
+      await expect(ctx.subprocess.terminalEnvironment()).resolves.toEqual({ platform: 'posix' })
+      for (const failure of [
+        systemError('EACCES'),
+        Object.assign(new Error('no info'), { code: 'ERR_SYSTEM_ERROR' }),
+        Object.assign(new Error('null info'), { code: 'ERR_SYSTEM_ERROR', info: null }),
+        Object.assign(new Error('scalar info'), { code: 'ERR_SYSTEM_ERROR', info: 'ENOENT' }),
+        Object.assign(new Error('codeless info'), { code: 'ERR_SYSTEM_ERROR', info: {} }),
+        Object.assign(new Error('other code'), { code: 'EPERM', info: { code: 'ENOENT' } }),
+        new Error('codeless'),
+        'not an error',
+      ]) {
+        userInfo.mockImplementationOnce(() => { throw failure })
+        await expect(ctx.subprocess.terminalEnvironment()).rejects.toBe(failure)
+      }
       platform.mockReturnValue('win32')
       vi.stubEnv('ComSpec', 'C:\\Windows\\System32\\cmd.exe')
       await expect(ctx.subprocess.terminalEnvironment()).resolves.toEqual({
