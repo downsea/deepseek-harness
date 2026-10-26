@@ -52,6 +52,9 @@ export DSH_OH_ROOT TMPDIR NARB_DISABLE_NATIVE_CACHE SHELL DSH_HOME DSH_AGENTS_HO
 mkdir -p "\$TMPDIR" "\$DSH_HOME" "\$DSH_AGENTS_HOME"
 # Keys follow the host convention: one ~/.env.private, copied here by push-env.sh (home reads 0600 back as 0640).
 if [ -r '$BASE/.env.private' ]; then set -a; . '$BASE/.env.private'; set +a; fi
+# oh on the device (oh-cli scripts/install-hmos.sh): puts oh, the CLT node / hvigor / hdc and OH_CONFIG_DIR in reach of
+# the bash tool however dsh was launched; its skills go to \$DSH_HOME/skills (oh skills install --agent dsh).
+if [ -r "\$HOME/.config/oh/env.sh" ]; then . "\$HOME/.config/oh/env.sh"; fi
 # The copied file points proxies at the VM's mihomo (127.0.0.1:7897), which does not exist on the device;
 # the device reaches the network directly.
 unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy NO_PROXY no_proxy
@@ -65,7 +68,7 @@ EOF
 
 log "install dsh-web and put $ROOT/bin on the HiShell PATH (~/.zshrc block, idempotent)"
 ssh "$HOST" "cat > '$ROOT/bin/dsh-web' && chmod 755 '$ROOT/bin/dsh-web'" <"$(dirname "$0")/dsh-web.zsh"
-ssh "$HOST" "grep -q '^# >>> dsh (openharmony deploy.sh) >>>' ~/.zshrc 2>/dev/null || printf '%s\\n' '# >>> dsh (openharmony deploy.sh) >>>' 'path=($ROOT/bin \$path)' '# <<< dsh <<<' >> ~/.zshrc"
+ssh "$HOST" "grep -q '^# >>> dsh (openharmony deploy.sh) >>>' ~/.zshrc 2>/dev/null || printf '%s\\n' '# >>> dsh (openharmony deploy.sh) >>>' 'path=($ROOT/bin \$path)' 'export DSH_HOME=$BASE/dsh-home' '# <<< dsh <<<' >> ~/.zshrc"
 
 log "verify on device"
 ssh "$HOST" "cd '$ROOT/tree' && sha256sum -c oh/SHA256SUMS && sha256sum '$ROOT/node/bin/node' && du -sh '$ROOT/tree'"
