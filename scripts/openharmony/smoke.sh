@@ -10,6 +10,10 @@
 # --m3 and --m6 replay recorded sessions through dsh-llm-replay (tree/oh/m3-replay.patch.yml): no credential is
 # placed on the device and no request leaves it. --m6 also starts `dsh --profile web` on 127.0.0.1:$M6_PORT
 # (default 3999) for one HTTP check and stops it again.
+#
+# Second root (DSH_OH_ROOT other than the default, deploy.sh): DSH_OH_OWNER (default "maintainer") must match
+# <root>/.owner; the web check refuses an occupied port and stops only a server started from this root. Runs keep
+# their scratch under the root's TMPDIR (bin/oh-env.sh), so nothing outside the root is written.
 set -euo pipefail
 M3=0 M6=0
 while [ $# -gt 1 ]; do
@@ -17,11 +21,28 @@ while [ $# -gt 1 ]; do
 done
 [ $# -eq 1 ] || { echo "usage: smoke.sh [--m3] [--m6] <host-alias>" >&2; exit 2; }
 HOST=$1
-ROOT="${DSH_OH_ROOT:-/data/storage/el2/base/dsh}"
+DEFAULT_ROOT=/data/storage/el2/base/dsh
+ROOT="${DSH_OH_ROOT:-$DEFAULT_ROOT}"
 PORT="${M6_PORT:-3999}"
+OWNER="${DSH_OH_OWNER:-maintainer}"
+# ssh by absolute path (an unattended caller may block the bare name); OH_SSH overrides.
+if [ -z "${OH_SSH:-}" ]; then if [ -x /usr/bin/ssh ]; then OH_SSH=/usr/bin/ssh; else OH_SSH=ssh; fi; fi
+SCOPED=0
+if [ "$ROOT" != "$DEFAULT_ROOT" ]; then
+  SCOPED=1
+  [[ $ROOT =~ ^/data/storage/el2/base/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "smoke.sh: DSH_OH_ROOT must be /data/storage/el2/base/<name>" >&2; exit 2; }
+  [[ $OWNER =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "smoke.sh: bad DSH_OH_OWNER" >&2; exit 2; }
+  [[ $PORT =~ ^[0-9]+$ ]] || { echo "smoke.sh: bad M6_PORT" >&2; exit 2; }
+elif [ "$OWNER" != maintainer ]; then
+  echo "smoke.sh: $ROOT is the maintainer's root; DSH_OH_OWNER=$OWNER smokes its own DSH_OH_ROOT" >&2; exit 2
+fi
 
-ssh "$HOST" "ROOT='$ROOT' M3=$M3 M6=$M6 PORT=$PORT sh -s" <<'DEVICE'
+"$OH_SSH" "$HOST" "ROOT='$ROOT' M3=$M3 M6=$M6 PORT=$PORT SCOPED=$SCOPED OWNER='$OWNER' sh -s" <<'DEVICE'
 set -u
+if [ "$SCOPED" = 1 ]; then
+  o=$(cat "$ROOT/.owner" 2>/dev/null)
+  [ "$o" = "$OWNER" ] || { echo "M0 FAIL: $ROOT/.owner is '$o', not '$OWNER'"; exit 3; }
+fi
 . "$ROOT/bin/oh-env.sh"
 NODE="$ROOT/node/bin/node"
 OUT="$TMPDIR/oh-smoke.$$"; mkdir -p "$OUT"
@@ -114,7 +135,14 @@ if [ "$M6" = 1 ]; then
       .then((r) => console.log(`sharp ok vips=${s.versions.vips} out=${r.info.format} ${r.info.width}x${r.info.height}`))
       .catch((e) => { console.log(`sharp fail ${e.message.split("\n")[0]}`); process.exitCode = 1 })' ) 2>&1 | sed 's/^/M6 /'
 
-  # Web: start the web profile on loopback, sign in with the startup token, fetch / and stop the server.
+  # Web: start the web profile on loopback, sign in with the startup token, fetch / and stop the server. A second root
+  # refuses an occupied port instead of signing in to (and later stopping) somebody else's server.
+  if [ "$SCOPED" = 1 ] && "$NODE" -e '
+    const c = require("node:net").connect(Number(process.argv[1]), "127.0.0.1")
+    c.on("connect", () => { c.destroy(); process.exit(0) }).on("error", () => process.exit(1))' "$PORT" 2>/dev/null; then
+    echo "M6 web 127.0.0.1:$PORT is already in use; nothing started"
+    echo "M6 web verdict=fail"
+  else
   W="$TMPDIR/oh-m6-web"; H="$W.home"; rm -rf "$W" "$H"; mkdir -p "$W" "$H"
   ( cd "$W" && DSH_HOME="$H" exec timeout 300 "$ROOT/bin/dsh" --profile web --host 127.0.0.1 --port "$PORT" --no-open \
     >"$OUT/web.out" 2>"$OUT/web.err" ) &
@@ -125,11 +153,14 @@ if [ "$M6" = 1 ]; then
   login=$(curl -s -c "$OUT/jar" -o /dev/null -w '%{http_code}' "$url")
   code=$(curl -s -b "$OUT/jar" -o "$OUT/index.html" -w '%{http_code}' "http://127.0.0.1:$PORT/")
   echo "M6 web anonymous=$anon token-login=$login root=$code bytes=$(wc -c <"$OUT/index.html") title=$(grep -o '<title>[^<]*' "$OUT/index.html" | head -1)"
-  pid=$(ps -ef | grep -v grep | grep "lib/bin.js .*--port $PORT" | awk '{print $2}' | head -1)
+  pat="lib/bin.js .*--port $PORT"
+  [ "$SCOPED" = 0 ] || pat="$ROOT/tree/node_modules/@deepseek-ai/dsh/lib/bin.js .*--port $PORT"
+  pid=$(ps -ef | grep -v grep | grep "$pat" | awk '{print $2}' | head -1)
   [ -z "$pid" ] || kill "$pid"; wait
   head -20 "$OUT/web.err" | sed 's/^/M6 web stderr: /'
   if [ "$code" = 200 ]; then v=ok; else v=fail; fi
   echo "M6 web verdict=$v"
+  fi
 fi
 rm -rf "$OUT"
 exit $rc

@@ -12,8 +12,8 @@
   en: 7e899275bdfac1dd
   zh: 6a2737e20c61e3c3
 /openharmony-device-recipe/scripts:
-  en: b08e82dc67f0beea
-  zh: 7faeb0e88e5bd1a6
+  en: 9b6f529832f6ae88
+  zh: 8f3abc33a0d3b96c
 /openharmony-device-recipe/addon-placement:
   en: d5fa21cc016c1da7
   zh: 08fec8794a0d957c
@@ -26,6 +26,9 @@
 /openharmony-device-recipe/m6-checks:
   en: ba28f873fc2b9ce9
   zh: b1c93e28c59ece8e
+/openharmony-device-recipe/second-device-root:
+  en: e65a641b6573e54a
+  zh: 914b1d1c8da5cd53
 /openharmony-device-recipe/constraints:
   en: 8e6b4ba9cfdb14e5
   zh: 8c5fffc78869a7ec

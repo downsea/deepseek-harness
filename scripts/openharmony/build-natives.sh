@@ -50,7 +50,18 @@ fetch_pack node-addon-api-narb "node-addon-api@$NAA_NARB"
 fetch_pack node-addon-api-pty "node-addon-api@$NAA_PTY"
 fetch_pack node-pty "node-pty@$NODE_PTY_VERSION"
 fetch_pack koffi "koffi@$KOFFI_VERSION"
-[ -d "$SRC/narb/.git" ] || git clone -q https://github.com/deepseek-ai/dsh-node-addon-require-builtin.git "$SRC/narb"
+# require-builtin sources: NARB_SRC (a local checkout to clone from) avoids GitHub; OH_OFFLINE_SOURCES=1 fails instead
+# of cloning from GitHub when neither <out>/src/narb nor NARB_SRC exists.
+if [ ! -d "$SRC/narb/.git" ]; then
+  if [ -n "${NARB_SRC:-}" ]; then
+    [ -d "$NARB_SRC/.git" ] || die "NARB_SRC=$NARB_SRC is not a git checkout"
+    git clone -q "$NARB_SRC" "$SRC/narb"
+  elif [ "${OH_OFFLINE_SOURCES:-0}" = 1 ]; then
+    die "no $SRC/narb and OH_OFFLINE_SOURCES=1: seed it with NARB_SRC=<dsh-node-addon-require-builtin checkout>"
+  else
+    git clone -q https://github.com/deepseek-ai/dsh-node-addon-require-builtin.git "$SRC/narb"
+  fi
+fi
 git -C "$SRC/narb" checkout -q "$NARB_COMMIT"
 
 wait_slot

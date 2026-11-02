@@ -35,17 +35,19 @@ $R/smoke.sh --m3 --m6 hmos
 
 | 脚本 | 行为 | 失败条件 |
 |---|---|---|
-| `lib.sh` | 公共路径、等待正在运行的 cargo 或 rustc、`nice -n 10 taskset -c 0-2` 限核，以及 `sign_elf` | — |
+| `lib.sh` | 公共路径、按绝对路径调用 ssh（`OH_SSH`）、等待正在运行的 cargo、rustc 或 box64（由 `OH_WAIT_MAX` 限时）、`nice -n 10 taskset -c 0-2` 限核、`sign_elf`，以及第二设备根与属主检查 | — |
 | `build-natives.sh <dsh> <out>` | 用 NDK clang 编 require-builtin（napi-v9）、node-pty 与 koffi（`-static-libstdc++ -z max-page-size=4096`），经检出目录的 `native/system/scripts/build.ts --target openharmony-arm64` 编 flock，编 `@vscode/ripgrep` 所带版本的 crates.io ripgrep（`cargo install --locked --features pcre2 --target aarch64-unknown-linux-ohos`，为 PCRE2 JIT 链入 NDK 的 compiler-rt builtins），然后逐件签名 | 钉住的版本与检出目录的 `pnpm-lock.yaml` 不符；NEEDED 含 `libc.so` 以外的库；签名后的文件缺 `.codesign`；任一 LOAD 段 offset ≢ vaddr (mod 4K) |
 | `make-node.sh <clt-node> <out>` | 只从厂商签名的 node 中删除 `.codesign`，再自签 | 源文件没有 `.permission` 段，或签名删除、改动了它 |
 | `pack-tree.sh [--no-build] <dsh> <natives> <out>` | 运行 `build:artifacts --profile official` 与 `.github/workflows/release.yml` 的三次打包，再仿照 `scripts/release/verify-packed-install.ts` 用 `file:` tarball 安装，平台兼容性按 `openharmony/arm64` 判断（`npm install --ignore-scripts --omit=optional --os=openharmony --cpu=arm64`）；按 lockfile 版本加装 `@img/sharp-wasm32`；放置原生插件与 `@vscode/ripgrep-openharmony-arm64` 包，并扫描所有 ELF 文件 | 缺少放置目标包；已签 ELF 有不同余的 LOAD 段；已签 ELF 数与放置数不符 |
-| `deploy.sh <tree> <node-out> <alias>` | 设备上有 hvigor 或 dsh 在运行时拒绝执行；推送 node 与树（新树解包到旧树旁边，再用 `mv` 替换）；写 `bin/oh-env.sh`、`bin/dsh` 与 `bin/dsh-web`，并在 `~/.zshrc` 中加入一次 `PATH` 块；在设备上运行 `sha256sum -c` | 设备侧校验和不符 |
+| `deploy.sh <tree> <node-out> <alias>` | 设备上有 hvigor 或 dsh 在运行时拒绝执行；推送 node 与树（新树解包到旧树旁边，再用 `mv` 替换）；写 `bin/oh-env.sh`、`bin/dsh` 与 `bin/dsh-web`，并在 `~/.zshrc` 中加入一次 `PATH` 块；在设备上运行 `sha256sum -c`。第二设备根的行为不同（见第二设备根） | 设备侧校验和不符；属主标记不符 |
 | `dsh-web.zsh` | 在设备上装为 `bin/dsh-web`：检查端口，运行 `bin/dsh --profile web --no-open`，并用 `aa start -b com.huawei.hmos.browser` 打开第一条 `dsh web:` URL | 端口已被占用；dsh web 以非零退出 |
-| `push-env.sh <alias> [env-file]` | 把宿主的 `~/.env.private`（默认）以 0600 权限复制到 `/data/storage/el2/base/.env.private`，不打印内容；设备 home 会把 0600 读回为 0640 | 设备侧 sha256 或权限不符 |
+| `push-env.sh <alias> [env-file]` | 把宿主的 `~/.env.private`（默认）以 0600 权限复制到 `/data/storage/el2/base/.env.private`，不打印内容；设备 home 会把 0600 读回为 0640。`--root <root>` 改为写入第二设备根的环境文件 | 设备侧 sha256 或权限不符；第二设备根的文件含凭据形态的名字 |
 | `smoke.sh [--m3] [--m6] <alias>` | M1 运行 `device-smoke.cjs`；M2 运行 `--profile headless --help`；`--m3` 回放两段录制的会话；`--m6` 运行搜索、终端、图片与 Web 检查 | M1 或 M2 失败 |
 | `device-smoke.cjs` | 设备上的 M1：经各包自己的加载器加载每个原生插件，并要求映射的文件位于树内；经树内 `@vscode/ripgrep` 解析 `rg` 并运行一次 | 每项失败使退出码加一 |
 | `m6-terminal.mjs` | 设备上的 M6：经 `dsh-subprocess-local` 启动 `/bin/sh` 与 `/usr/bin/zsh` 终端，检查回显、resize 与关闭，并打印空闲时与 `sleep` 运行时的活动状态 | 每项失败使退出码加一 |
 | `m3-inspect.cjs` | 打印某个 dsh home 下最新会话日志中的工具调用与结果 | 没有会话日志 |
+| `sa-device-verify` | 针对一个提交在 agent 设备根上运行配方，每次调用一步，并打印证据 | 见第二设备根 |
+| `delta-check.sh <tag>` | 比较合入发布的 head 所带的本地改动与 `master` 上的本地改动 | 有路径或改动行不同且未列出 |
 
 ## 原生插件放置
 
@@ -78,6 +80,21 @@ $R/smoke.sh --m3 --m6 hmos
 ## M6 检查
 
 `smoke.sh --m6` 用树内的 `rg` 搜一处固定命中；用 `m6-replay.patch.yml` 回放 `fs-glob-sampling`（glob 工具，`rg --files`）与 `pty-tools-sandbox-backend`，该 overlay 把录制时的内存终端后端换成真实的 `dsh-terminal-bash` 栈，其 shell 先打印 `PTY_M6_OK`；运行 `m6-terminal.mjs`；经 sharp 缩放一张图片；在 `127.0.0.1:$M6_PORT`（默认 3999）启动 web profile，用启动令牌登录后请求 `/`，再停掉服务。每部分各打印一行 `verdict=`；Web 部分以 HTTP 200 为通过。
+
+## 第二设备根
+
+非默认的 `DSH_OH_ROOT` 是给另一个属主用的、自成一体的第二设备根：Super-agent 在 `/data/storage/el2/base/dsh-sa`（属主 `superagent-dsh`）上验证发布，从不碰默认根。对第二设备根，`deploy.sh` 把 `tmp`、`home`、`agents` 与 Web 的 `documents` 都放在根下（`bin/root.patch.yml` 设置 documents 目录），让 `bin/oh-env.sh` 读入 `<root>/env` 而不是 `/data/storage/el2/base/.env.private`，只有该文件设置 `DSH_OH_WITH_OH=1` 时才加载 oh 的 `env.sh`，不改动 `~/.zshrc`，并且只在根下有进程运行时拒绝执行。首次部署写入 `<root>/.owner`；`DSH_OH_OWNER`（默认 `maintainer`）与之不符时，`deploy.sh`、`push-env.sh --root` 与 `smoke.sh` 都拒绝执行；默认根只接受 `maintainer`。
+
+| 变量或选项 | 作用 |
+|---|---|
+| `DSH_OH_ROOT`、`DSH_OH_OWNER` | 设备根与其属主 |
+| `push-env.sh --root <root> [--allow-credentials] <alias> <file>` | 写入 `<root>/env`，来源绝不是 `~/.env.private`；只接受 `NAME=value` 行与注释，名字含 KEY、PASSWORD、SECRET 或 TOKEN 时拒绝，除非给出 `--allow-credentials` |
+| `OH_SSH` | ssh 可执行文件，默认 `/usr/bin/ssh`，因为无人值守的调用方可能屏蔽裸名 |
+| `OH_WAIT_MAX`、`OH_WAIT_STEP` | 把等待 cargo、rustc、box64 或 node 构建的时间限制在该秒数内，超时以 75 退出 |
+| `OH_BUILD_ARGS` | 追加给 `build:artifacts` 的参数，例如 `--serial` |
+| `NARB_SRC`、`OH_OFFLINE_SOURCES=1` | 从本地 checkout 克隆 require-builtin；不从 GitHub 克隆，缺源码时直接失败 |
+
+`sa-device-verify` 针对某个 checkout 的 `HEAD`，在 agent 设备根上运行整条配方，每次调用只跑一步（`next`，另有 `status`、`evidence`、`reset` 与 `--dry-run`），缓存放在 `~/.cache/dsh-sa-hmos`，使用不含 key 的环境文件 `~/.config/dsh-sa/device.env`。一步完成时退出码为 0，全部完成并打印证据时为 10，构建机或设备忙时为 75，某步失败时为 1，需要人介入时为 2。提交改动了设备侧脚本时，它在部署前停下，直到有人把该提交追加到 `~/.config/dsh-sa/recipe-approved`。`delta-check.sh <tag>` 检查合入发布的 head 是否带上了本地改动。指标见 [METRICS.md](METRICS.md)，隐患见 [KNOWN-ISSUES.md](KNOWN-ISSUES.md)。
 
 ## 约束
 
