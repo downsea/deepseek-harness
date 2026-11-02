@@ -45,26 +45,24 @@ interface ResourceRecord {
  */
 export const RESOURCE_SCHEME = 'dsh-resource'
 
+/** The scheme separator and authority of one resource address, whatever follows them. */
+const RESOURCE_AUTHORITY = new RegExp(`^${RESOURCE_SCHEME}:\\/\\/([^/?#]*)`, 'i')
+
 /**
- * The protocol key of one address: the host of a `dsh-resource://` URL, as the
- * URL parser reads it (lower-cased). Any other string — another scheme, or one
- * the URL parser rejects — names no protocol and is treated like an address
- * whose protocol has no provider.
+ * The protocol key of one address: the first segment after `dsh-resource://`,
+ * lower-cased. Any other string — another scheme, an empty authority, a string
+ * without one — names no protocol and is treated like an address whose
+ * protocol has no provider.
+ *
+ * Read as text rather than through `URL`: some engines do not split an
+ * authority out of a non-special scheme, so a URL-host reading would report
+ * every resource address as protocol-less.
  * @param address - the full address.
  * @returns the protocol key, or `undefined` when the address is not a resource address.
  */
 export function protocolOf(address: string): string | undefined {
-  let parsed: URL
-  try {
-    parsed = new URL(address)
-  } catch {
-    // The URL parser rejects strings without a scheme (`/a/b.txt`, `''`);
-    // nothing else throws here, and an unparseable address is simply not ours.
-    return undefined
-  }
-  if (parsed.protocol !== `${RESOURCE_SCHEME}:`) return undefined
-  // A non-special scheme's host is opaque to the URL parser and keeps its case.
-  return parsed.hostname === '' ? undefined : parsed.hostname.toLowerCase()
+  const authority = RESOURCE_AUTHORITY.exec(address)?.[1]
+  return authority === undefined || authority === '' ? undefined : authority.toLowerCase()
 }
 
 function idle(status: 'none' | 'loading'): ResourceSnapshot<unknown> {
