@@ -35,17 +35,19 @@ $R/smoke.sh --m3 --m6 hmos
 
 | Script | Behavior | Fails when |
 |---|---|---|
-| `lib.sh` | Shared paths, the wait for running cargo or rustc, the `nice -n 10 taskset -c 0-2` cap, and `sign_elf` | — |
+| `lib.sh` | Shared paths, ssh by absolute path (`OH_SSH`), the wait for running cargo, rustc or box64 (bounded by `OH_WAIT_MAX`), the `nice -n 10 taskset -c 0-2` cap, `sign_elf`, and the second-root and owner checks | — |
 | `build-natives.sh <dsh> <out>` | Builds require-builtin (napi-v9), node-pty, and koffi with the NDK clang (`-static-libstdc++ -z max-page-size=4096`), builds flock through the checkout's `native/system/scripts/build.ts --target openharmony-arm64`, builds the crates.io ripgrep release that `@vscode/ripgrep` ships (`cargo install --locked --features pcre2 --target aarch64-unknown-linux-ohos`, linked with the NDK's compiler-rt builtins for PCRE2 JIT), then signs every product | A pinned version differs from the checkout's `pnpm-lock.yaml`; NEEDED names anything besides `libc.so`; a signed file lacks `.codesign`; any LOAD segment has offset ≢ vaddr (mod 4K) |
 | `make-node.sh <clt-node> <out>` | Removes only `.codesign` from the vendor-signed node and self-signs it | The source has no `.permission` section, or signing drops or changes it |
 | `pack-tree.sh [--no-build] <dsh> <natives> <out>` | Runs `build:artifacts --profile official`, the three packs of `.github/workflows/release.yml`, and a `file:` tarball install modeled on `scripts/release/verify-packed-install.ts` with platform compatibility judged for `openharmony/arm64` (`npm install --ignore-scripts --omit=optional --os=openharmony --cpu=arm64`); adds `@img/sharp-wasm32` at the lockfile's version; places the addons and the `@vscode/ripgrep-openharmony-arm64` package, and sweeps every ELF file | A placement target package is missing; a signed ELF has an incongruent LOAD segment; the signed ELF count differs from the placement count |
-| `deploy.sh <tree> <node-out> <alias>` | Refuses while hvigor or dsh runs on the device; pushes node and tree (the new tree unpacks beside the old one and replaces it with `mv`); writes `bin/oh-env.sh`, `bin/dsh`, and `bin/dsh-web`, and adds the `PATH` block to `~/.zshrc` once; runs `sha256sum -c` on the device | A device checksum differs |
+| `deploy.sh <tree> <node-out> <alias>` | Refuses while hvigor or dsh runs on the device; pushes node and tree (the new tree unpacks beside the old one and replaces it with `mv`); writes `bin/oh-env.sh`, `bin/dsh`, and `bin/dsh-web`, and adds the `PATH` block to `~/.zshrc` once; runs `sha256sum -c` on the device. A second root differs (see Second device root) | A device checksum differs; the owner marker differs |
 | `dsh-web.zsh` | Installed as `bin/dsh-web` on the device: checks the port, runs `bin/dsh --profile web --no-open`, and opens the first `dsh web:` URL with `aa start -b com.huawei.hmos.browser` | The port is already in use; dsh web exits non-zero |
-| `push-env.sh <alias> [env-file]` | Copies the host's `~/.env.private` (default) to `/data/storage/el2/base/.env.private` with mode 0600 without printing it; the device home reads 0600 back as 0640 | The device sha256 or mode differs |
+| `push-env.sh <alias> [env-file]` | Copies the host's `~/.env.private` (default) to `/data/storage/el2/base/.env.private` with mode 0600 without printing it; the device home reads 0600 back as 0640. `--root <root>` writes a second root's env file instead | The device sha256 or mode differs; a second root's file holds a credential-shaped name |
 | `smoke.sh [--m3] [--m6] <alias>` | M1 runs `device-smoke.cjs`; M2 runs `--profile headless --help`; `--m3` replays two recorded sessions; `--m6` runs the search, terminal, image and Web checks | M1 or M2 fails |
 | `device-smoke.cjs` | M1 on the device: loads each addon through its package's own loader and requires the mapped file to be inside the tree; resolves `rg` through `@vscode/ripgrep` inside the tree and runs it | Each failed check adds one to the exit status |
 | `m6-terminal.mjs` | M6 on the device: spawns `/bin/sh` and `/usr/bin/zsh` terminals through `dsh-subprocess-local`, checks echo, resize and close, and prints the activity state while idle and while `sleep` runs | Each failed check adds one to the exit status |
 | `m3-inspect.cjs` | Prints the tool calls and results of the newest session log under a dsh home | No session log exists |
+| `sa-device-verify` | Runs the recipe for one commit against the agent root, one step per call, and prints the evidence | See Second device root |
+| `delta-check.sh <tag>` | Compares the delta a release-merge head carries with the delta on `master` | A path or changed line differs and is not listed |
 
 ## Addon placement
 
@@ -78,6 +80,21 @@ $R/smoke.sh --m3 --m6 hmos
 ## M6 checks
 
 `smoke.sh --m6` runs `rg` from the tree against a fixed match; replays `fs-glob-sampling` (glob tool, `rg --files`) and `pty-tools-sandbox-backend` with `m6-replay.patch.yml`, which replaces the recorded in-memory terminal backend with the real `dsh-terminal-bash` stack whose shell prints `PTY_M6_OK`; runs `m6-terminal.mjs`; resizes one image through sharp; and starts the web profile on `127.0.0.1:$M6_PORT` (default 3999), signs in with the startup token, requests `/`, and stops the server. Each part prints its own `verdict=` line; the Web part passes on HTTP 200.
+
+## Second device root
+
+A `DSH_OH_ROOT` other than the default is a second, self-contained root for another owner: the Super-agent verifies releases on `/data/storage/el2/base/dsh-sa` (owner `superagent-dsh`) and never touches the default root. For a second root, `deploy.sh` keeps `tmp`, `home`, `agents` and the Web `documents` under the root (`bin/root.patch.yml` sets the documents directory), makes `bin/oh-env.sh` load `<root>/env` instead of `/data/storage/el2/base/.env.private`, loads oh's `env.sh` only when that file sets `DSH_OH_WITH_OH=1`, leaves `~/.zshrc` alone, and refuses only while a process under the root runs. The first deploy writes `<root>/.owner`; `deploy.sh`, `push-env.sh --root` and `smoke.sh` refuse when `DSH_OH_OWNER` (default `maintainer`) differs, and the default root accepts only `maintainer`.
+
+| Variable or option | Effect |
+|---|---|
+| `DSH_OH_ROOT`, `DSH_OH_OWNER` | The root and its owner |
+| `push-env.sh --root <root> [--allow-credentials] <alias> <file>` | Writes `<root>/env`, never from `~/.env.private`; accepts only `NAME=value` lines and comments, and refuses names containing KEY, PASSWORD, SECRET or TOKEN unless `--allow-credentials` is given |
+| `OH_SSH` | The ssh binary, default `/usr/bin/ssh`, because an unattended caller may block the bare name |
+| `OH_WAIT_MAX`, `OH_WAIT_STEP` | Bound every wait for cargo, rustc, box64 or node builds to that many seconds, then exit 75 |
+| `OH_BUILD_ARGS` | Extra `build:artifacts` arguments, such as `--serial` |
+| `NARB_SRC`, `OH_OFFLINE_SOURCES=1` | Clone require-builtin from a local checkout; fail instead of cloning from GitHub |
+
+`sa-device-verify` runs the whole recipe for the `HEAD` of a checkout against the agent root, one step per call (`next`, plus `status`, `evidence`, `reset` and `--dry-run`), with caches under `~/.cache/dsh-sa-hmos` and the key-free env file `~/.config/dsh-sa/device.env`. It exits 0 when a step is done, 10 when all steps are done and the evidence is printed, 75 when the machine or the device is busy, 1 when a step failed, and 2 when a human is needed. It stops before deploying a commit that changes the device-side scripts until a human appends that commit to `~/.config/dsh-sa/recipe-approved`. `delta-check.sh <tag>` checks that a release-merge head carries the delta. The metrics are in [METRICS.md](METRICS.md) and the hazards in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
 ## Constraints
 
