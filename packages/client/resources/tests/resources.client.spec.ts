@@ -104,6 +104,17 @@ describe('protocolOf', () => {
     expect(protocolOf('/a/b.txt')).toBeUndefined()
     expect(protocolOf('')).toBeUndefined()
   })
+
+  it('reads the protocol without the URL parser', () => {
+    // Some engines, including the HarmonyOS ArkWeb browser, report no host for
+    // a non-special scheme, so a resource address must not depend on one.
+    vi.stubGlobal('URL', () => { throw new Error('URL must not parse a resource address') })
+    try {
+      expect(protocolOf('dsh-resource://file/session/s1/a.txt')).toBe('file')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 describe('ResourceRegistry providers', () => {
