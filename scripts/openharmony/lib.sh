@@ -15,8 +15,42 @@ BST="${BST:-$CLT/sdk/default/openharmony/toolchains/lib/binary-sign-tool}"
 # Device CLT as seen from the VM through virtiofs (VM path = /mnt/linux_share + host absolute path).
 DEVICE_CLT="${DEVICE_CLT:-/mnt/linux_share/storage/Users/currentUser/hmos-clt/command-line-tools}"
 
+# Device layout. The default root is the maintainer's install; any other DSH_OH_ROOT under $OH_BASE is a second,
+# self-contained root (deploy.sh, push-env.sh --root, smoke.sh; README "Second device root").
+OH_BASE=/data/storage/el2/base
+OH_DEFAULT_ROOT=$OH_BASE/dsh
+# ssh by absolute path: an unattended caller may block the bare name `ssh` for its workers. OH_SSH overrides.
+if [ -z "${OH_SSH:-}" ]; then if [ -x /usr/bin/ssh ]; then OH_SSH=/usr/bin/ssh; else OH_SSH=ssh; fi; fi
+
 log() { printf '[oh] %s\n' "$*" >&2; }
 die() { printf '[oh] FAIL: %s\n' "$*" >&2; exit 1; }
+
+# A second root is one plain directory directly under $OH_BASE (it is embedded in single-quoted device commands), and
+# never the default root or a directory the maintainer's install or oh uses.
+oh_second_root() { # <root>
+  case $1 in
+    "$OH_DEFAULT_ROOT") die "$1 is the maintainer's default root, not a second root" ;;
+    "$OH_BASE"/dsh-home|"$OH_BASE"/dsh-agents|"$OH_BASE"/dsh-documents|"$OH_BASE"/tmp|"$OH_BASE"/oh|"$OH_BASE"/oh-*|"$OH_BASE"/mihomo|"$OH_BASE"/dsh-w0)
+      die "$1 belongs to the maintainer's install or tools; pick another DSH_OH_ROOT" ;;
+  esac
+  [[ $1 =~ ^/data/storage/el2/base/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "a second root must be $OH_BASE/<name> ([A-Za-z0-9._-]), got $1"
+}
+
+# Owner marker of a second root (<root>/.owner, one line). claim: write it when the root does not exist yet; an existing
+# root without a marker is refused rather than adopted. require: the marker must exist. Either way a different owner is
+# refused, so a caller with the wrong DSH_OH_OWNER never writes into someone else's root.
+oh_owner() { # <host> <root> <owner> claim|require
+  local got
+  [[ $3 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "owner name must be [A-Za-z0-9._-], got $3"
+  got=$("$OH_SSH" "$1" "if [ -f '$2/.owner' ]; then cat '$2/.owner'; elif [ -e '$2' ]; then echo '<no-owner-marker>'; fi")
+  case $got in
+    "$3") return 0 ;;
+    '') [ "$4" = claim ] || die "$2 does not exist on the device; deploy.sh creates it"
+        "$OH_SSH" "$1" "mkdir -p '$2' && printf '%s\\n' '$3' > '$2/.owner'"; log "claimed $2 for owner $3" ;;
+    '<no-owner-marker>') die "$2 exists without an owner marker; refusing to adopt it (remove it or write $2/.owner by hand)" ;;
+    *) die "$2 belongs to owner '$got', not '$3' (DSH_OH_OWNER)" ;;
+  esac
+}
 
 # Waits. Unset OH_WAIT_MAX = wait as long as it takes (interactive use). OH_WAIT_MAX=<seconds> bounds every wait and
 # exits 75 (EX_TEMPFAIL, "busy, try again later") when exceeded, so an unattended runner hands control back instead of
