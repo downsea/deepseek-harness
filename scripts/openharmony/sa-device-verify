@@ -315,7 +315,7 @@ show_plan() {
   echo "cache      $CACHE (worktree $WT, out $OUT)"
   echo "recipe     base $RECIPE_BASE; guarded files changed: $(changed_guarded || true)$(approved && echo ' (approved)')"
   echo "lease      $(lease_holder || true)"
-  echo "last       $(tr '\n' ' ' <"$LAST" 2>/dev/null || echo 'none')"
+  echo "last       $(if [ -f "$LAST" ]; then tr '\n' ' ' <"$LAST"; else echo none; fi)"
   echo "machine    heavy: $(heavy_busy || echo idle); host disk $(host_avail_gb) GB free on $HOST_MOUNT"
   echo "env file   $(p=$(check_env_file); echo "${p:-ok}")"
   [ -z "$(git -C "$REPO" status --porcelain --untracked-files=no)" ] || echo "note       uncommitted changes are not verified; the runner builds HEAD"
