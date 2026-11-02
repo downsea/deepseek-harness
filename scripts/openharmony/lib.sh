@@ -18,13 +18,24 @@ DEVICE_CLT="${DEVICE_CLT:-/mnt/linux_share/storage/Users/currentUser/hmos-clt/co
 log() { printf '[oh] %s\n' "$*" >&2; }
 die() { printf '[oh] FAIL: %s\n' "$*" >&2; exit 1; }
 
-# Host rule: clang/cmake/make are not gated by the cargo build slot; wait while cargo/rustc runs,
-# then run capped (nice + CPUs 0-2, -j3).
-wait_slot() {
-  while pgrep -x cargo >/dev/null || pgrep -x rustc >/dev/null; do
-    log "cargo/rustc busy, waiting 60s"; sleep 60
+# Waits. Unset OH_WAIT_MAX = wait as long as it takes (interactive use). OH_WAIT_MAX=<seconds> bounds every wait and
+# exits 75 (EX_TEMPFAIL, "busy, try again later") when exceeded, so an unattended runner hands control back instead of
+# sleeping through its turn.
+OH_BUSY_EXIT=75
+wait_while() { # <message> <command...>: wait while the command succeeds
+  local msg=$1 waited=0 step=${OH_WAIT_STEP:-60}; shift
+  while "$@"; do
+    if [ -n "${OH_WAIT_MAX:-}" ] && [ "$waited" -ge "$OH_WAIT_MAX" ]; then
+      log "$msg for ${waited}s (OH_WAIT_MAX=$OH_WAIT_MAX); try again later"; exit "$OH_BUSY_EXIT"
+    fi
+    log "$msg, waiting ${step}s"; sleep "$step"; waited=$((waited + step))
   done
 }
+
+# Host rule: clang/cmake/make, pnpm and node builds are not gated by the cargo build slot; wait while cargo/rustc
+# (or box64, which runs hvigor on this VM) runs, then run capped (nice + CPUs 0-2, -j3).
+slot_busy() { pgrep -x cargo >/dev/null || pgrep -x rustc >/dev/null || pgrep -x box64 >/dev/null; }
+wait_slot() { wait_while "cargo/rustc/box64 busy" slot_busy; }
 CAP=(nice -n 10); command -v taskset >/dev/null && CAP+=(taskset -c 0-2)
 
 require_tools() {

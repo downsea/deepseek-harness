@@ -29,15 +29,17 @@ SHARP_WASM=$(sed -n "s/^  '@img\/sharp-wasm32@\([^']*\)':\$/\1/p" "$DSH/pnpm-loc
 NSP=$DSH/native/system/packages/openharmony-arm64
 [ -f "$NSP/package.json" ] || die "$DSH has no native/system/packages/openharmony-arm64 (the flock platform package)"
 
-# Repo rule: heavy node runs wait for other sessions' vitest / tsc / tsdown / vite / tsx.
-wait_node() {
-  while pgrep -xa node | grep -Eq 'vitest|tsc|tsdown|vite|tsx'; do log "node build/test running elsewhere, waiting 60s"; sleep 60; done
-}
+# Repo rule: heavy node runs wait for other sessions' vitest / tsc / tsdown / vite / tsx (bounded by OH_WAIT_MAX, lib.sh).
+node_busy() { pgrep -xa node | grep -Eq 'vitest|tsc|tsdown|vite|tsx'; }
+wait_node() { wait_while "node build/test running elsewhere" node_busy; }
+# OH_BUILD_ARGS: extra build:artifacts arguments, e.g. --serial where the checkout's scripts/build.ts has it (two 8 GiB
+# typecheck heaps at once can OOM a 9 GB build machine).
+read -r -a BUILD_ARGS <<<"${OH_BUILD_ARGS:-}"
 
 PACK=$OUT/pack
 if [ $BUILD = 1 ]; then
-  wait_node; log "build:artifacts --profile official"
-  (cd "$DSH" && "${CAP[@]}" pnpm run build:artifacts --profile official) >"$OUT/build.log" 2>&1 \
+  wait_slot; wait_node; log "build:artifacts --profile official ${BUILD_ARGS[*]}"
+  (cd "$DSH" && "${CAP[@]}" pnpm run build:artifacts --profile official "${BUILD_ARGS[@]}") >"$OUT/build.log" 2>&1 \
     || { tail -40 "$OUT/build.log" >&2; die "build failed (log $OUT/build.log)"; }
 fi
 wait_node; log "release:pack dsh + vendor + landlock entry"
