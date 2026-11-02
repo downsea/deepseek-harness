@@ -1,0 +1,519 @@
+#!/usr/bin/env bash
+# sa-device-verify: device verification of one commit on the HarmonyOS PC, resumable and one step per call, for an
+# unattended caller (the Super-agent's worker) whose background jobs are limited to 30 minutes per turn.
+#
+# Usage: sa-device-verify [--repo <dir>] [--dry-run] next|status|evidence|reset
+#   next      run exactly one pending step for the checkout's HEAD, then exit (call again until exit 10)
+#   status    print configuration, the step state for HEAD and what `next` would do (no ssh, no writes)
+#   evidence  print the evidence block once every step is done
+#   reset     forget the state for HEAD (the next call starts at preflight)
+#   --dry-run with next: print the plan and the checks for HEAD without running anything or writing anything
+#
+# Steps: preflight → install → natives → node → pack → deploy → smoke → m5 → report
+#   preflight  tools, key-free env file, device recipe unchanged (or approved), sshd up, root owner, free space
+#   install    detached worktree of HEAD (cache) + pnpm install --frozen-lockfile
+#   natives    build-natives.sh into a cache keyed by pins, native/system, NDK and node headers (hit = no build)
+#   node       make-node.sh into a cache keyed by the device CLT node (hit = no build)
+#   pack       pack-tree.sh into the one shared out/ slot (held by a lease until report); the worktree is removed after
+#   deploy     deploy.sh + push-env.sh --root to the agent root (never the maintainer's root, never ~/.env.private)
+#   smoke      smoke.sh --m3 --m6: M1 M2 M3 M6 must all pass
+#   m5         wipe the agent root, deploy again, smoke.sh --m3; only when the recipe changed since the last verified
+#              run and this run did not already start from an empty root
+#   report     free out/tree, release the lease, record the last verified recipe, print the evidence
+#
+# Exit status: 0 step done (call again) · 10 all done (evidence printed) · 75 busy, try later (heavy job on this
+# machine, the maintainer's dsh/hvigor on the device, another Ticket holds the slot) · 1 step failed (log path printed;
+# the next call retries it) · 2 needs a human (sshd down, device recipe changed and not approved, owner mismatch, env
+# file missing or not key-free, disk low, a step failed SA_MAX_ATTEMPTS times, SA_MAX_YIELDS yields in a row).
+#
+# Configuration (environment; defaults in brackets): SA_DEVICE_HOST [hmos] · SA_DEVICE_ROOT
+# [/data/storage/el2/base/dsh-sa] · SA_DEVICE_OWNER [superagent-dsh] · SA_DEVICE_ENV [~/.config/dsh-sa/device.env] ·
+# SA_CACHE [~/.cache/dsh-sa-hmos] · SA_M6_PORT [3999] · SA_WAIT_MAX [300] seconds of bounded waiting per call ·
+# SA_MAX_ATTEMPTS [2] · SA_MAX_YIELDS [8] · SA_RECIPE_BASE [origin/master, else master] ·
+# SA_RECIPE_APPROVALS [~/.config/dsh-sa/recipe-approved] · SA_SSH [/usr/bin/ssh] · CLT, DEVICE_CLT as in lib.sh.
+# A device-recipe change is approved by a human appending the full HEAD sha to SA_RECIPE_APPROVALS; a worker never
+# writes that file. Run this from a copy outside the checkout it verifies when the checkout is untrusted (README).
+set -euo pipefail
+
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+DRY=0 REPO_ARG=. CMD=''
+while [ $# -gt 0 ]; do
+  case $1 in
+    --repo) [ $# -ge 2 ] || usage; REPO_ARG=$2; shift 2 ;;
+    --dry-run) DRY=1; shift ;;
+    -h|--help) usage 0 ;;
+    next|status|evidence|reset) [ -z "$CMD" ] || usage; CMD=$1; shift ;;
+    *) usage ;;
+  esac
+done
+[ -n "$CMD" ] || usage
+
+# --- configuration -------------------------------------------------------------------------------------------------
+BASE=/data/storage/el2/base
+MAINTAINER_ROOT=$BASE/dsh
+HOST=${SA_DEVICE_HOST:-hmos}
+ROOT=${SA_DEVICE_ROOT:-$BASE/dsh-sa}
+OWNER=${SA_DEVICE_OWNER:-superagent-dsh}
+ENV_FILE=${SA_DEVICE_ENV:-$HOME/.config/dsh-sa/device.env}
+CACHE=${SA_CACHE:-$HOME/.cache/dsh-sa-hmos}
+PORT=${SA_M6_PORT:-3999}
+WAIT_MAX=${SA_WAIT_MAX:-300}
+WAIT_STEP=${SA_WAIT_STEP:-30}
+MAX_ATTEMPTS=${SA_MAX_ATTEMPTS:-2}
+MAX_YIELDS=${SA_MAX_YIELDS:-8}
+LEASE_TTL=${SA_LEASE_TTL:-2700}
+APPROVALS=${SA_RECIPE_APPROVALS:-$HOME/.config/dsh-sa/recipe-approved}
+SSH_BIN=${SA_SSH:-/usr/bin/ssh}
+CLT=${CLT:-$HOME/tools/command-line-tools}
+DEVICE_CLT=${DEVICE_CLT:-/mnt/linux_share/storage/Users/currentUser/hmos-clt/command-line-tools}
+HOST_MOUNT=/mnt/linux_share/storage/Users/currentUser
+DISK_GUARD=${SA_DISK_GUARD:-$HOME/.bin/disk-guard.sh}
+HOST_MIN_FREE_GB=15
+DEVICE_MIN_FREE_KB=$((5 * 1024 * 1024))
+STEPS=(preflight install natives node pack deploy smoke m5 report)
+# The scripts whose device-side commands this runner executes. A change to any of them stops for a human (D9).
+GUARDED=(deploy.sh smoke.sh push-env.sh lib.sh dsh-web.zsh sa-device-verify)
+
+say() { printf '[sa-verify] %s\n' "$*" >&2; }
+now() { date +%s; }
+
+REPO=$(git -C "$REPO_ARG" rev-parse --show-toplevel 2>/dev/null) || { say "not inside a git checkout: $REPO_ARG"; exit 2; }
+HEAD=$(git -C "$REPO" rev-parse HEAD)
+GITDIR=$(git -C "$REPO" rev-parse --absolute-git-dir)
+TICKET=$(printf '%s' "$GITDIR" | sha256sum | cut -c1-12)
+VDIR=$GITDIR/oh-verify
+STATE=$VDIR/$HEAD
+LOGS=$STATE/logs
+RECIPE=$STATE/recipe/scripts/openharmony
+WT=$CACHE/wt/$TICKET
+OUT=$CACHE/out
+LEASE=$CACHE/slot.lease
+LAST=$CACHE/last-verified
+SSHW=$VDIR/bin/ssh-batch
+if [ -z "${SA_RECIPE_BASE:-}" ]; then
+  if git -C "$REPO" rev-parse -q --verify refs/remotes/origin/master >/dev/null; then RECIPE_BASE=refs/remotes/origin/master
+  else RECIPE_BASE=refs/heads/master; fi
+else RECIPE_BASE=$SA_RECIPE_BASE; fi
+
+# --- guards that hold for every command -----------------------------------------------------------------------------
+[ "$ROOT" != "$MAINTAINER_ROOT" ] || { say "SA_DEVICE_ROOT is the maintainer's root $MAINTAINER_ROOT; refusing"; exit 2; }
+[[ $ROOT =~ ^/data/storage/el2/base/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { say "SA_DEVICE_ROOT must be $BASE/<name>"; exit 2; }
+[[ $OWNER =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { say "bad SA_DEVICE_OWNER"; exit 2; }
+[ "$OWNER" != maintainer ] || { say "the owner 'maintainer' is the maintainer's; pick the agent's owner name"; exit 2; }
+[[ $PORT =~ ^[0-9]+$ ]] && [ "$PORT" != 3080 ] || { say "SA_M6_PORT must be a number other than 3080 (the maintainer's)"; exit 2; }
+
+# --- state ---------------------------------------------------------------------------------------------------------
+# $STATE/state: one line per attempt "step=<s> rc=<n> secs=<n> at=<epoch> note=<text>"; rc 0 = done.
+# $STATE/vars: key=value facts later steps and the evidence need. $STATE/yields: consecutive yields.
+done_step() { [ -f "$STATE/state" ] && grep -q "^step=$1 rc=0 " "$STATE/state"; }
+attempts() { [ -f "$STATE/state" ] || { echo 0; return; }; grep -c "^step=$1 rc=1 " "$STATE/state" || true; }
+next_step() { local s; for s in "${STEPS[@]}"; do done_step "$s" || { echo "$s"; return; }; done; echo all-done; }
+var() { [ -f "$STATE/vars" ] || return 0; sed -n "s/^$1=//p" "$STATE/vars" | tail -1; }
+setvar() { echo "$1=$2" >>"$STATE/vars"; }
+record() { # <step> <rc> <secs> <note>
+  printf 'step=%s rc=%s secs=%s at=%s note=%s\n' "$1" "$2" "$3" "$(now)" "${4//$'\n'/ }" >>"$STATE/state"
+}
+fmt_secs() { local s=$1; if [ "$s" -ge 60 ]; then printf '%dm%02ds' $((s / 60)) $((s % 60)); else printf '%ds' "$s"; fi; }
+
+CUR='' T0=0
+finish() { # step done
+  local secs=$(( $(now) - T0 ))
+  record "$CUR" 0 "$secs" "${1:-ok}"; rm -f "$STATE/yields"
+  say "DONE $CUR in $(fmt_secs "$secs")${1:+ ($1)}; next: $(next_step) — run 'sa-device-verify next' again"
+  exit 0
+}
+needs_human() {
+  [ -z "$CUR" ] || record "$CUR" 2 $(( $(now) - T0 )) "$1"
+  release_lease_if_ours
+  say "NEEDS-HUMAN${CUR:+ at $CUR}: $1"; exit 2
+}
+fail() { # step failed; the next call retries it, up to MAX_ATTEMPTS
+  record "$CUR" 1 $(( $(now) - T0 )) "$1"
+  local n; n=$(attempts "$CUR")
+  [ "$n" -lt "$MAX_ATTEMPTS" ] || needs_human "$CUR failed $n times (last: $1; logs $LOGS)"
+  say "FAILED $CUR (attempt $n/$MAX_ATTEMPTS): $1 — log $LOGS/$CUR.log; fix the cause or call 'next' again to retry"
+  exit 1
+}
+yield() { # busy: hand control back
+  local n; n=$(( $(cat "$STATE/yields" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$STATE/yields"
+  [ "$n" -lt "$MAX_YIELDS" ] || { rm -f "$STATE/yields"; needs_human "yielded $n times in a row: $1"; }
+  say "YIELD ($n/$MAX_YIELDS)${CUR:+ at $CUR}: $1 — try again later (e.g. a job 'sleep 120; sa-device-verify next')"
+  exit 75
+}
+
+# --- machine checks --------------------------------------------------------------------------------------------------
+heavy_busy() { # prints what is busy
+  local p
+  for p in cargo rustc box64; do pgrep -x "$p" >/dev/null && { echo "$p"; return 0; }; done
+  pgrep -xa node | grep -Eq 'vitest|tsc|tsdown|vite|tsx' && { echo "node build/test"; return 0; }
+  return 1
+}
+gate_heavy() { # one heavy job per machine: wait up to WAIT_MAX, then yield; then hold the machine-wide heavy lock
+  local waited=0 what
+  while what=$(heavy_busy); do
+    [ "$waited" -lt "$WAIT_MAX" ] || yield "heavy job running on this machine ($what)"
+    say "$what running on this machine; waiting ${WAIT_STEP}s"; sleep "$WAIT_STEP"; waited=$((waited + WAIT_STEP))
+  done
+  exec 8>"$CACHE/heavy.lock"
+  flock -w "$WAIT_MAX" 8 || yield "another sa-device-verify holds the heavy-job lock"
+}
+host_avail_gb() { df -Pk "$HOST_MOUNT" 2>/dev/null | awk 'NR==2{printf "%d", $4/1048576}'; }
+gate_disk() { # the host disk behind virtiofs is the one that matters (disk-guard); the guest's / is a sparse image
+  if [ -x "$DISK_GUARD" ]; then
+    "$DISK_GUARD" --check >/dev/null 2>&1 || needs_human "host disk low ($DISK_GUARD --check exit $?; $(host_avail_gb) GB free on $HOST_MOUNT)"
+  else
+    local gb; gb=$(host_avail_gb)
+    [ -n "$gb" ] && [ "$gb" -ge "$HOST_MIN_FREE_GB" ] || needs_human "host disk low (${gb:-?} GB free on $HOST_MOUNT, need $HOST_MIN_FREE_GB)"
+  fi
+}
+dsh_ssh() { "$SSHW" "$HOST" "$@"; }
+SSHD_OUT=''
+gate_sshd() { # sshd lives in a HiShell tab and dies with it; nothing on the VM can restart it. Sets SSHD_OUT.
+  local rc=0
+  SSHD_OUT=$(dsh_ssh 'cat /proc/uptime; uname -sr' 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || needs_human "ssh $HOST failed (exit $rc: $(printf '%s' "$SSHD_OUT" | tail -1)); sshd on the PC is down — the maintainer restores it in HiShell (restore-ssh.sh)"
+}
+gate_device_idle() { # yield to the maintainer's dsh/hvigor and wait out this root's own leftovers (smoke's web server)
+  local waited=0 ps mine theirs
+  while :; do
+    ps=$(dsh_ssh 'ps -ef' 2>/dev/null) || needs_human "ssh $HOST failed; sshd on the PC is down"
+    mine=$(printf '%s\n' "$ps" | grep -F "$ROOT/" | grep -vc grep || true)
+    theirs=$(printf '%s\n' "$ps" | grep -E 'hvigor|/node/bin/node|lib/bin.js' | grep -vF "$ROOT/" | grep -vc grep || true)
+    [ "$mine" = 0 ] && [ "$theirs" = 0 ] && return 0
+    [ "$waited" -lt "$WAIT_MAX" ] || {
+      [ "$theirs" = 0 ] && yield "$mine process(es) of $ROOT still run on the device (smoke's web server stops within 5 min)"
+      yield "the maintainer's dsh/hvigor runs on the device ($theirs process(es)); yielding (D9)"
+    }
+    say "device busy (maintainer $theirs, own $mine); waiting ${WAIT_STEP}s"; sleep "$WAIT_STEP"; waited=$((waited + WAIT_STEP))
+  done
+}
+device_owner() { dsh_ssh "if [ -f '$ROOT/.owner' ]; then cat '$ROOT/.owner'; elif [ -e '$ROOT' ]; then echo '<no-owner-marker>'; fi" 2>/dev/null; }
+gate_owner() {
+  local o; o=$(device_owner) || needs_human "ssh $HOST failed; sshd on the PC is down"
+  case $o in
+    ''|"$OWNER") ;;
+    '<no-owner-marker>') needs_human "$ROOT exists on the device without an owner marker; a human decides whether it may be replaced" ;;
+    *) needs_human "$ROOT belongs to owner '$o', not '$OWNER'" ;;
+  esac
+}
+
+# --- the shared out/ slot: one tree at a time, held from pack to report ---------------------------------------------
+lease_holder() { [ -f "$LEASE" ] && cat "$LEASE" || true; }
+acquire_lease() {
+  exec 7>"$CACHE/lease.lock"; flock -w 30 7 || yield "lease lock busy"
+  local cur key at; cur=$(lease_holder)
+  if [ -n "$cur" ]; then
+    read -r key _ at <<<"$cur"
+    if [ "$key" != "$TICKET" ] && [ $(( $(now) - at )) -lt "$LEASE_TTL" ]; then
+      flock -u 7; yield "another checkout ($key) holds the device slot (pack → report)"
+    fi
+  fi
+  echo "$TICKET $HEAD $(now)" >"$LEASE"; flock -u 7
+}
+release_lease_if_ours() {
+  local key; key=$(lease_holder | cut -d' ' -f1)
+  [ "$key" != "$TICKET" ] || rm -f "$LEASE"
+}
+
+# --- recipe guard ---------------------------------------------------------------------------------------------------
+recipe_oid() { git -C "$REPO" ls-tree "$1" -- "scripts/openharmony/$2" | awk '{print $3}'; }
+changed_guarded() { # guarded files whose blob differs between RECIPE_BASE and HEAD
+  local f; for f in "${GUARDED[@]}"; do [ "$(recipe_oid "$RECIPE_BASE" "$f")" = "$(recipe_oid HEAD "$f")" ] || printf '%s ' "$f"; done
+}
+approved() { [ -f "$APPROVALS" ] && grep -qx "$HEAD" "$APPROVALS"; }
+# Recipe identity for M5: every file under scripts/openharmony/ except prose (.md, .i18n.yaml).
+recipe_hash() { git -C "$REPO" ls-tree -r HEAD -- scripts/openharmony | grep -vE '\.(md|i18n\.yaml)$' | sha256sum | cut -c1-16; }
+
+# --- env file -------------------------------------------------------------------------------------------------------
+check_env_file() { # prints a problem, or nothing
+  [ -f "$ENV_FILE" ] || { echo "$ENV_FILE is missing (the maintainer writes it; comments only is fine)"; return; }
+  local bad creds
+  bad=$(grep -vnE '^[[:space:]]*(#.*)?$|^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" | cut -d: -f1 | tr '\n' ' ' || true)
+  [ -z "$bad" ] || { echo "$ENV_FILE has lines that are not NAME=value or comments ($bad)"; return; }
+  creds=$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$ENV_FILE" | grep -iE 'KEY|PASSWORD|SECRET|TOKEN' | tr '\n' ' ' || true)
+  [ -z "$creds" ] || echo "$ENV_FILE sets credential-shaped names ($creds); the agent root gets none"
+}
+
+# --- cache keys -----------------------------------------------------------------------------------------------------
+blob_sha() { git -C "$REPO" cat-file -p "HEAD:scripts/openharmony/$1" 2>/dev/null | sha256sum | cut -c1-64; }
+ndk_id() { "$CLT/sdk/default/openharmony/native/llvm/bin/aarch64-unknown-linux-ohos-clang" --version 2>/dev/null | head -1; }
+natives_key() {
+  { blob_sha build-natives.sh; blob_sha lib.sh; blob_sha ohos-compat/statx-compat.h
+    git -C "$REPO" rev-parse HEAD:native/system
+    cat "${NODE_INCLUDE:-$DEVICE_CLT/node/include/node}"/node_api.h "${NODE_INCLUDE:-$DEVICE_CLT/node/include/node}"/node_version.h 2>/dev/null | sha256sum
+    ndk_id; rustc --version 2>/dev/null || true; } | sha256sum | cut -c1-16
+}
+node_key() { { sha256sum <"$DEVICE_CLT/node/bin/node"; blob_sha make-node.sh; blob_sha lib.sh; } | sha256sum | cut -c1-16; }
+prune_keys() { # <dir> <keep-key>: keep the newest two entries (and the current one)
+  local d=$1 keep=$2 n=0 e
+  # shellcheck disable=SC2045  # cache keys are hex names; ls -t gives the age order
+  for e in $(ls -1t "$d" 2>/dev/null); do
+    n=$((n + 1)); [ "$e" = "$keep" ] || [ "$n" -le 2 ] || rm -rf "${d:?}/$e"
+  done
+}
+
+# --- evidence -------------------------------------------------------------------------------------------------------
+redact() { sed -E 's/([?&]token=)[^ &"]*/\1<redacted>/g'; }
+step_line() {
+  local s secs note out=''
+  for s in "${STEPS[@]}"; do
+    secs=$(grep "^step=$s rc=0 " "$STATE/state" 2>/dev/null | tail -1 | sed -n 's/.* secs=\([0-9]*\) .*/\1/p')
+    note=$(grep "^step=$s rc=0 " "$STATE/state" 2>/dev/null | tail -1 | sed -n 's/.* note=//p')
+    [ -n "$secs" ] || continue
+    case $note in ok|'') out+="$s $(fmt_secs "$secs") · " ;; *) out+="$s $(fmt_secs "$secs") ($note) · " ;; esac
+  done
+  printf '%s' "${out% · }"
+}
+write_evidence() {
+  local ev=$STATE/evidence.txt total
+  total=$(awk -F'[ =]' '/ rc=0 /{for(i=1;i<NF;i++) if($i=="secs") s+=$(i+1)} END{print s+0}' "$STATE/state")
+  {
+    echo "oh-verify  head=$HEAD  root=$ROOT  owner=$OWNER  device=$(var device)  uptime=$(var uptime)s  vm=$(hostname)"
+    echo "steps      $(step_line)"
+    echo "natives    key=$(var natives_key) — signed sha256:"
+    sed 's/^/             /' "$(var natives_dir)/SHA256SUMS" 2>/dev/null
+    echo "           readings: $(grep -c '^== ' "$(var natives_dir)/readings.txt" 2>/dev/null) files, NEEDED other than libc.so: $(grep '^== ' "$(var natives_dir)/readings.txt" 2>/dev/null | grep -vc 'NEEDED=\[libc.so \]' || true), LOAD misaligned: $(grep -c MISALIGNED "$(var natives_dir)/readings.txt" 2>/dev/null || true)"
+    echo "node       key=$(var node_key) vm sha256=$(var node_sha) device sha256=$(var device_node_sha) $([ "$(var node_sha)" = "$(var device_node_sha)" ] && echo match || echo MISMATCH)"
+    echo "tree       dsh-commit=$(var tree_commit) ($([ "$(var tree_commit)" = "$HEAD" ] && echo '== head' || echo 'DIFFERS FROM HEAD')); placed=$(var placed); $(var elf_sweep); size $(var tree_size)"
+    echo "deploy     device sha256sum -c: $(var deploy_ok)"
+    grep -E '^M0 |^M1 SMOKE|^M2 exit|^M3 .*verdict=|^M6 rg verdict|^M6 .* verdict=|^M6 TERM-SUMMARY|^M6 sharp|^M6 web (startup|anonymous)' "$LOGS/smoke.log" 2>/dev/null | redact
+    case $(var m5) in
+      run) echo "M5         wipe $ROOT → deploy → smoke --m3:"; grep -E '^M1 SMOKE-SUMMARY|^M2 exit|^M3 .*verdict=' "$LOGS/m5.log" 2>/dev/null | sed 's/^/           /' ;;
+      *) echo "M5         skipped: $(var m5_reason)" ;;
+    esac
+    echo "fingerprint maintainer install (runner-side, informational; W6 is scored by the orchestrator): before=$(var fp_before) after=$(var fp_after) $([ "$(var fp_before)" = "$(var fp_after)" ] && echo equal || echo DIFFERENT)"
+    echo "cost       wall $(fmt_secs "$total") in steps; host avail before $(var host_gb_before) GB after $(var host_gb_after) GB; cache $(du -sh "$CACHE" 2>/dev/null | cut -f1)"
+    echo "logs       $LOGS (on the VM)"
+  } >"$ev"
+}
+
+# Fingerprint of the maintainer's install: names, sizes and mtimes only (no content), hashed on the device.
+FP_LIST="for p in $BASE/dsh/bin $BASE/dsh/node $BASE/dsh-home $BASE/dsh-agents $BASE/dsh-documents $BASE/oh/config \$HOME/.config/oh; do [ -e \"\$p\" ] && find \"\$p\" -exec stat -c '%n %s %Y' {} + ; done 2>/dev/null; for f in $BASE/.env.private \$HOME/.zshrc $BASE/dsh/tree/oh/dsh-commit.txt $BASE/dsh/tree/oh/SHA256SUMS; do [ -e \"\$f\" ] && stat -c '%n %s %Y' \"\$f\"; done 2>/dev/null"
+FP_CMD="{ $FP_LIST; } | sort | sha256sum | cut -c1-16"
+fingerprint() { dsh_ssh "$FP_CMD" 2>/dev/null || echo unavailable; }
+
+# --- the plan (status / dry-run) ------------------------------------------------------------------------------------
+describe() { # <step>
+  local nk; case $1 in
+    preflight) echo "tools (NDK, signer, device CLT node over virtiofs, pnpm, flock); env file $ENV_FILE key-free; guarded recipe files vs $RECIPE_BASE; ssh $HOST up; $ROOT owner '$OWNER'; device free ≥ 5 GB; host disk (disk-guard)" ;;
+    install) echo "git worktree add --detach $WT $HEAD; (cd $WT && pnpm install --frozen-lockfile) — after the heavy-job gate" ;;
+    natives) nk=$(natives_key); if [ -f "$CACHE/natives/$nk/SHA256SUMS" ]; then echo "cache hit $CACHE/natives/$nk (no build)"; else echo "OH_OFFLINE_SOURCES=1 NARB_SRC=$CACHE/seed/narb build-natives.sh $WT $CACHE/natives/$nk — after the heavy-job gate"; fi ;;
+    node) nk=$(node_key); if [ -f "$CACHE/node/$nk/SHA256SUMS" ]; then echo "cache hit $CACHE/node/$nk"; else echo "make-node.sh $DEVICE_CLT/node/bin/node $CACHE/node/$nk"; fi ;;
+    pack) echo "lease $LEASE; pack-tree.sh $WT <natives> $OUT${SERIAL_HINT:+ (OH_BUILD_ARGS=--serial)} — after the heavy-job gate; then the worktree is removed" ;;
+    deploy) echo "yield to the maintainer's dsh/hvigor on $HOST; DSH_OH_ROOT=$ROOT DSH_OH_OWNER=$OWNER deploy.sh $OUT/tree <node> $HOST; push-env.sh --root $ROOT $HOST $ENV_FILE" ;;
+    smoke) echo "DSH_OH_ROOT=$ROOT DSH_OH_OWNER=$OWNER M6_PORT=$PORT smoke.sh --m3 --m6 $HOST; pass = M1 SMOKE-SUMMARY fail=0, M2 exit 0, M3 ×2, M6 rg/glob/pty/terminal/sharp/web ok, M0 commit = HEAD" ;;
+    m5) if [ "$(recipe_hash)" = "$(sed -n 's/^recipe=//p' "$LAST" 2>/dev/null)" ]; then echo "skip (recipe $(recipe_hash) already verified)"; else echo "recipe $(recipe_hash) not verified yet: rm -rf $ROOT → deploy → push-env → smoke --m3 (skipped if this run's deploy started from an empty root)"; fi ;;
+    report) echo "rm -rf $OUT/tree; release the lease; record $LAST; print the evidence (exit 10)" ;;
+  esac
+}
+show_plan() {
+  local s nxt; nxt=$(next_step)
+  echo "repo       $REPO"
+  echo "head       $HEAD"
+  echo "state      $STATE"
+  echo "device     $HOST root=$ROOT owner=$OWNER port=$PORT env=$ENV_FILE"
+  echo "cache      $CACHE (worktree $WT, out $OUT)"
+  echo "recipe     base $RECIPE_BASE; guarded files changed: $(changed_guarded || true)$(approved && echo ' (approved)')"
+  echo "lease      $(lease_holder || true)"
+  echo "last       $(tr '\n' ' ' <"$LAST" 2>/dev/null || echo 'none')"
+  echo "machine    heavy: $(heavy_busy || echo idle); host disk $(host_avail_gb) GB free on $HOST_MOUNT"
+  echo "env file   $(p=$(check_env_file); echo "${p:-ok}")"
+  [ -z "$(git -C "$REPO" status --porcelain --untracked-files=no)" ] || echo "note       uncommitted changes are not verified; the runner builds HEAD"
+  for s in "${STEPS[@]}"; do
+    if done_step "$s"; then echo "  [done] $s  $(grep "^step=$s rc=0 " "$STATE/state" | tail -1 | sed 's/^step=[a-z0-9]* //')"
+    elif [ "$s" = "$nxt" ]; then echo "  [next] $s  $(describe "$s")"
+    else echo "  [todo] $s  $(describe "$s")"; fi
+  done
+  [ ! -f "$STATE/state" ] || { echo "attempts:"; grep -v ' rc=0 ' "$STATE/state" | sed 's/^/  /' || true; }
+}
+
+git -C "$REPO" cat-file -p HEAD:scripts/build.ts 2>/dev/null | grep -q -- '--serial' && SERIAL_HINT=1 || SERIAL_HINT=''
+
+case $CMD in
+  status) show_plan; exit 0 ;;
+  evidence) [ -f "$STATE/evidence.txt" ] || { say "no evidence yet for $HEAD (next step: $(next_step))"; exit 1; }; cat "$STATE/evidence.txt"; exit 0 ;;
+  reset)
+    [ "$DRY" = 0 ] || { echo "would remove $STATE and $WT"; exit 0; }
+    release_lease_if_ours; rm -rf "$STATE"
+    git -C "$REPO" worktree remove --force "$WT" 2>/dev/null || rm -rf "$WT"; git -C "$REPO" worktree prune
+    say "state for $HEAD cleared"; exit 0 ;;
+esac
+
+# --- next -------------------------------------------------------------------------------------------------------------
+if [ "$DRY" = 1 ]; then echo "DRY-RUN: nothing is run, nothing is written, no ssh"; show_plan; exit 0; fi
+
+mkdir -p "$LOGS" "$CACHE/wt" "$CACHE/natives" "$CACHE/node" "$CACHE/seed" "$(dirname "$SSHW")"
+exec 9>"$VDIR/lock"
+flock -n 9 || { say "another sa-device-verify runs for this checkout; try again later"; exit 75; }
+# Older HEADs' state goes: a moved HEAD starts over.
+for d in "$VDIR"/*/; do [ "$d" = "$STATE/" ] || [ ! -f "$d/state" ] || rm -rf "$d"; done
+printf '#!/bin/sh\nexec %s -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 "$@"\n' "$SSH_BIN" >"$SSHW"; chmod 755 "$SSHW"
+export DSH_OH_ROOT=$ROOT DSH_OH_OWNER=$OWNER M6_PORT=$PORT OH_SSH=$SSHW OH_WAIT_MAX=120 OH_WAIT_STEP=30 OH_OFFLINE_SOURCES=1 CLT DEVICE_CLT
+
+CUR=$(next_step); T0=$(now)
+if [ "$CUR" = all-done ]; then cat "$STATE/evidence.txt"; exit 10; fi
+say "step $CUR for $HEAD"
+L=$LOGS/$CUR.log
+
+case $CUR in
+preflight)
+  for t in flock git pnpm node sha256sum "$SSH_BIN"; do command -v "$t" >/dev/null || needs_human "missing tool $t"; done
+  for t in "$CLT/sdk/default/openharmony/native/llvm/bin/aarch64-unknown-linux-ohos-clang" "$CLT/sdk/default/openharmony/toolchains/lib/binary-sign-tool"; do
+    [ -x "$t" ] || needs_human "missing $t (CLT)"; done
+  [ -f "$DEVICE_CLT/node/bin/node" ] && [ -f "$DEVICE_CLT/node/include/node/node_api.h" ] \
+    || needs_human "device CLT not readable at $DEVICE_CLT (moved or upgraded on the PC?)"
+  p=$(check_env_file); [ -z "$p" ] || needs_human "$p"
+  ch=$(changed_guarded)
+  if [ -n "$ch" ]; then
+    approved || needs_human "this commit changes the device recipe ($ch) against $RECIPE_BASE; a human reviews it and appends $HEAD to $APPROVALS before the agent deploys (D9)"
+    say "device recipe change approved for $HEAD ($ch)"
+  fi
+  rm -rf "$STATE/recipe"; mkdir -p "$STATE/recipe"
+  git -C "$REPO" archive HEAD scripts/openharmony | tar -x -C "$STATE/recipe"
+  # Worktrees of checkouts that no longer exist (an ended Ticket's directory was deleted).
+  for d in "$CACHE"/wt/*/; do
+    [ -f "$d/.git" ] || continue
+    g=$(sed -n 's/^gitdir: //p' "$d/.git"); [ -e "$g" ] || rm -rf "$d"
+  done
+  gate_disk
+  gate_sshd
+  setvar uptime "$(printf '%s\n' "$SSHD_OUT" | head -1 | cut -d' ' -f1 | cut -d. -f1)"
+  setvar device "$(printf '%s\n' "$SSHD_OUT" | sed -n 2p | tr ' ' '_')"
+  gate_owner
+  free=$(dsh_ssh "df -k $BASE | tail -1" 2>/dev/null | awk '{print $4}')
+  [ -n "$free" ] && [ "$free" -ge "$DEVICE_MIN_FREE_KB" ] || needs_human "device free space ${free:-?} KB under $BASE (need 5 GB)"
+  setvar host_gb_before "$(host_avail_gb)"
+  [ -d "$CACHE/seed/narb/.git" ] || ls -d "$CACHE"/natives/*/src/narb/.git >/dev/null 2>&1 \
+    || say "note: no require-builtin seed at $CACHE/seed/narb; a natives cache miss will need a human to seed it"
+  finish "device $(var device), $(var host_gb_before) GB host free"
+  ;;
+install)
+  gate_disk; gate_heavy
+  if [ -d "$WT" ] && [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" != "$HEAD" ]; then
+    git -C "$REPO" worktree remove --force "$WT" 2>/dev/null || rm -rf "$WT"
+  fi
+  git -C "$REPO" worktree prune
+  [ -d "$WT" ] || git -C "$REPO" worktree add --detach "$WT" "$HEAD" >"$L" 2>&1 || fail "git worktree add failed"
+  (cd "$WT" && pnpm install --frozen-lockfile) >>"$L" 2>&1 || fail "pnpm install --frozen-lockfile failed"
+  finish
+  ;;
+natives)
+  key=$(natives_key); NAT=$CACHE/natives/$key
+  setvar natives_key "$key"; setvar natives_dir "$NAT"
+  if [ -f "$NAT/SHA256SUMS" ] && (cd "$NAT/signed" && sha256sum -c --quiet ../SHA256SUMS) >/dev/null 2>&1; then
+    finish "cache-hit $key"
+  fi
+  gate_disk; gate_heavy
+  [ -d "$WT" ] || fail "worktree $WT is gone; run 'sa-device-verify reset'"
+  if [ ! -d "$NAT/src/narb/.git" ]; then
+    # shellcheck disable=SC2010  # cache keys are hex names; ls -t gives the newest
+    prev=$(ls -1td "$CACHE"/natives/*/src 2>/dev/null | grep -v "^$NAT/" | head -1 || true)
+    if [ -n "$prev" ]; then mkdir -p "$NAT"; cp -a "$prev" "$NAT/src"
+    elif [ -d "$CACHE/seed/narb/.git" ]; then export NARB_SRC=$CACHE/seed/narb
+    else needs_human "no require-builtin sources for a natives build and the agent never clones from GitHub: seed $CACHE/seed/narb (a dsh-node-addon-require-builtin checkout)"; fi
+  fi
+  rc=0; "$RECIPE/build-natives.sh" "$WT" "$NAT" >"$L" 2>&1 || rc=$?
+  [ "$rc" != 75 ] || yield "build slot busy (build-natives.sh)"
+  [ "$rc" = 0 ] || fail "build-natives.sh exit $rc"
+  prune_keys "$CACHE/natives" "$key"
+  finish "built $key"
+  ;;
+node)
+  key=$(node_key); NO=$CACHE/node/$key
+  setvar node_key "$key"; setvar node_dir "$NO"
+  if [ -f "$NO/SHA256SUMS" ] && (cd "$NO" && sha256sum -c --quiet SHA256SUMS) >/dev/null 2>&1; then
+    setvar node_sha "$(cut -d' ' -f1 "$NO/SHA256SUMS")"; finish "cache-hit $key"
+  fi
+  gate_heavy
+  "$RECIPE/make-node.sh" "$DEVICE_CLT/node/bin/node" "$NO" >"$L" 2>&1 || fail "make-node.sh failed"
+  setvar node_sha "$(cut -d' ' -f1 "$NO/SHA256SUMS")"
+  prune_keys "$CACHE/node" "$key"
+  finish "built $key"
+  ;;
+pack)
+  [ -d "$WT" ] || fail "worktree $WT is gone; run 'sa-device-verify reset'"
+  gate_disk; acquire_lease; gate_heavy
+  [ -z "$SERIAL_HINT" ] || export OH_BUILD_ARGS=--serial
+  rc=0; "$RECIPE/pack-tree.sh" "$WT" "$(var natives_dir)" "$OUT" >"$L" 2>&1 || rc=$?
+  [ "$rc" != 75 ] || yield "build slot or node build busy (pack-tree.sh)"
+  [ "$rc" = 0 ] || fail "pack-tree.sh exit $rc"
+  tc=$(cat "$OUT/tree/oh/dsh-commit.txt"); [ "$tc" = "$HEAD" ] || fail "packed tree is $tc, not $HEAD"
+  setvar tree_commit "$tc"; setvar placed "$(wc -l <"$OUT/tree/oh/placed.txt")"
+  setvar elf_sweep "ELF sweep $(grep -c '^signed' "$OUT/tree/oh/elf-sweep.txt") signed kept, $(grep -c '^removed' "$OUT/tree/oh/elf-sweep.txt" || true) unsigned removed"
+  setvar tree_size "$(du -sh "$OUT/tree" | cut -f1)"
+  git -C "$REPO" worktree remove --force "$WT" >>"$L" 2>&1 || rm -rf "$WT"; git -C "$REPO" worktree prune
+  finish "$(var tree_size), worktree removed"
+  ;;
+deploy|m5)
+  if [ "$CUR" = m5 ]; then
+    if [ "$(var fresh_root)" = 1 ]; then setvar m5 skipped; setvar m5_reason "this run deployed into an empty $ROOT"; finish "covered: deployed into an empty root"; fi
+    if [ "$(recipe_hash)" = "$(sed -n 's/^recipe=//p' "$LAST" 2>/dev/null)" ]; then
+      setvar m5 skipped; setvar m5_reason "recipe $(recipe_hash) verified before ($(sed -n 's/^head=//p' "$LAST"))"; finish "skipped: recipe unchanged"
+    fi
+  fi
+  acquire_lease
+  tc=$(cat "$OUT/tree/oh/dsh-commit.txt" 2>/dev/null || true)
+  if [ "$tc" != "$HEAD" ]; then  # another checkout used the slot in between: pack again
+    sed -i '/^step=pack rc=0 /d' "$STATE/state"; fail "out/tree is ${tc:-gone}, not $HEAD; pack runs again"
+  fi
+  gate_sshd; gate_owner; gate_device_idle
+  if [ "$CUR" = deploy ]; then
+    [ -n "$(var fp_before)" ] || setvar fp_before "$(fingerprint)"
+    ex=$(dsh_ssh "[ -d '$ROOT/tree' ] && echo yes || echo no") || needs_human "ssh $HOST failed"
+    [ -n "$(var fresh_root)" ] || setvar fresh_root "$([ "$ex" = no ] && echo 1 || echo 0)"
+  else
+    say "M5: wiping $ROOT (owner $OWNER) for a from-empty deploy"
+    dsh_ssh "o=\$(cat '$ROOT/.owner' 2>/dev/null); [ \"\$o\" = '$OWNER' ] && rm -rf '$ROOT'" >"$L" 2>&1 || needs_human "could not wipe $ROOT (owner check or ssh failed)"
+  fi
+  "$RECIPE/deploy.sh" "$OUT/tree" "$(var node_dir)" "$HOST" >>"$L" 2>&1 || fail "deploy.sh failed"
+  "$RECIPE/push-env.sh" --root "$ROOT" "$HOST" "$ENV_FILE" >>"$L" 2>&1 || fail "push-env.sh --root failed"
+  ok=$(grep -c ': OK$' "$L" || true); bad=$(grep -c ': FAILED' "$L" || true)
+  dn=$(grep "  $ROOT/node/bin/node\$" "$L" | tail -1 | cut -d' ' -f1)
+  [ "$dn" = "$(var node_sha)" ] || fail "device node sha256 ${dn:-?} differs from the VM's $(var node_sha)"
+  [ "$bad" = 0 ] && [ "$ok" -gt 0 ] || fail "device sha256sum -c: $ok OK, $bad FAILED"
+  if [ "$CUR" = deploy ]; then
+    setvar deploy_ok "$ok OK, $bad FAILED"; setvar device_node_sha "$dn"
+    finish "$ok checksums OK"
+  fi
+  rc=0; "$RECIPE/smoke.sh" --m3 "$HOST" >>"$L" 2>&1 || rc=$?
+  miss=''
+  grep -Eq '^M1 SMOKE-SUMMARY ok=([5-9]|[1-9][0-9]+) fail=0' "$L" || miss+='M1 '
+  grep -Eq '^M2 exit=0 no-usable-native-binding=no' "$L" || miss+='M2 '
+  grep -q '^M3 bash-tool-turn verdict=ok' "$L" || miss+='M3/bash-tool-turn '
+  grep -q '^M3 fs-write verdict=ok' "$L" || miss+='M3/fs-write '
+  [ "$rc" = 0 ] && [ -z "$miss" ] || fail "M5 smoke exit $rc, failing: ${miss:-none}"
+  setvar m5 run
+  finish "M5 ok"
+  ;;
+smoke)
+  acquire_lease; gate_sshd; gate_owner; gate_device_idle
+  rc=0; "$RECIPE/smoke.sh" --m3 --m6 "$HOST" >"$L" 2>&1 || rc=$?
+  miss=''
+  chk() { grep -Eq "$1" "$L" || miss+="$2 "; }
+  chk "^M0 device: .* root=$ROOT commit=$HEAD\$" M0/commit
+  chk '^M1 SMOKE-SUMMARY ok=([5-9]|[1-9][0-9]+) fail=0' M1
+  chk '^M2 exit=0 no-usable-native-binding=no' M2
+  chk '^M3 bash-tool-turn verdict=ok' M3/bash-tool-turn
+  chk '^M3 fs-write verdict=ok' M3/fs-write
+  chk '^M6 rg verdict=ok' M6/rg
+  chk '^M6 fs-glob-sampling verdict=ok' M6/glob
+  chk '^M6 pty-tools-sandbox-backend verdict=ok' M6/pty
+  chk '^M6 terminal verdict=ok' M6/terminal
+  chk '^M6 sharp ok' M6/sharp
+  chk '^M6 web verdict=ok' M6/web
+  setvar fp_after "$(fingerprint)"
+  [ "$rc" = 0 ] && [ -z "$miss" ] || fail "smoke exit $rc, failing: ${miss:-none} (see KNOWN-ISSUES.md before retrying)"
+  finish "M0 M1 M2 M3 M6 ok"
+  ;;
+report)
+  rm -rf "$OUT/tree"
+  setvar host_gb_after "$(host_avail_gb)"
+  printf 'recipe=%s\nhead=%s\nat=%s\nroot=%s\n' "$(recipe_hash)" "$HEAD" "$(now)" "$ROOT" >"$LAST"
+  dsh_ssh "rm -rf '$ROOT/tmp/oh-smoke.'*" >/dev/null 2>&1 || true
+  release_lease_if_ours
+  record report 0 $(( $(now) - T0 )) ok; rm -f "$STATE/yields"
+  write_evidence
+  cat "$STATE/evidence.txt"
+  exit 10
+  ;;
+esac
