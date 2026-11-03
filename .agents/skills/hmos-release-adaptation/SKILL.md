@@ -11,7 +11,7 @@ One upstream release tag in, one reviewable PR out. `master` here = the last ada
 
 1. Reply on the issue: the tag name and the sha you will merge.
 2. Fetch it from the `upstream` remote (the Gitea pull mirror of upstream; the Ticket's prepare command adds it — never GitHub): `git fetch upstream "refs/tags/<tag>:refs/tags/<tag>"`, then `git rev-parse "<tag>^{commit}"`. If the sha differs from the one the issue names, stop and ask (moved tag).
-3. Classify. `master` follows the **alpha line** only (decision D2). `git fetch upstream master`, then `B=$(git merge-base origin/master upstream/master)` is the last upstream commit `master` absorbed. Adapt the tag when `git merge-base --is-ancestor "$B" <tag>` holds and `git merge-base --is-ancestor <tag> origin/master` does not (not yet merged); this is the `dsh-v0.2.2-alpha.N` line. An rc tag (`…-rc.N`) sits on a release branch that does not contain `B`: it is **not** adapted; comment "rc line not followed (D2)" with that ancestry fact and end the Ticket. If the name and the ancestry disagree, ask. Several new alpha tags at once: merge the newest and list the others as covered.
+3. Classify. `master` follows the **latest upstream release** (decision D2, revised 2026-11-03): the newest `dsh-v*` tag by release date, whatever its pre-release kind (alpha, rc or final). Adapt it when `git merge-base --is-ancestor <tag> origin/master` does not hold (not yet merged); several new tags at once: merge the newest and list the others as covered. If the newest release does not contain `B=$(git merge-base origin/master upstream/master)` — the last upstream commit `master` absorbed — it sits behind master's line: do not back-merge it, report blocked and ask which line `master` follows. If the issue's tag name and its 40-hex commit disagree, ask.
 
 ## 2. Budget the machine
 
@@ -66,7 +66,7 @@ A red gate: re-run the same gate on the pristine tag (`git worktree add --detach
 
 Push `agent/<ticket-short-name>` to `origin` and open a draft PR into `master` with the instance's `gh` (the Gitea shim). Title `merge(hmos): <tag> into master`. Body (items ⑥–⑨ follow later):
 
-① tag, tag sha, `git rev-list --count origin/master..<tag>`; ② conflicts: path · hunks · owning HMOS commit · rule used; ③ the section 3 review table with verdicts; ④ `delta-check.sh` output verbatim + A / R / adapted lists with reasons; ⑤ W3: command, exit code, wall clock, each red classified `upstream` / `adaptation` / `environment`; ⑥ device evidence; ⑦ skipped tags (rc, covered); ⑧ cost: wall clock, peak disk; ⑨ open questions for the maintainer.
+① tag, tag sha, `git rev-list --count origin/master..<tag>`; ② conflicts: path · hunks · owning HMOS commit · rule used; ③ the section 3 review table with verdicts; ④ `delta-check.sh` output verbatim + A / R / adapted lists with reasons; ⑤ W3: command, exit code, wall clock, each red classified `upstream` / `adaptation` / `environment`; ⑥ device evidence; ⑦ skipped tags (older, covered); ⑧ cost: wall clock, peak disk; ⑨ open questions for the maintainer.
 
 ## 8. Device verification (W4)
 
