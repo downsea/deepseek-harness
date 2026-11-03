@@ -17,6 +17,7 @@ The HMOS delta touches few files, and upstream rarely edits them; the real risks
 | procfs gates | `hasLinuxProcfs()` in `subprocess-local` (`530cb707d6`) | any new `process.platform === 'linux'` procfs check skips openharmony |
 | flock platform | `native/system` (`flock.ts` platform gate, `scripts/build.ts --target openharmony-arm64`, `packages/openharmony-arm64`) | first session write needs flock |
 | Native pins | `build-natives.sh` (`node-addon-require-builtin@0.1.9`, `node-pty@1.2.0-beta.15`, `koffi@3.1.1`, `@vscode/ripgrep@1.18.0` / ripgrep 15.0.0, `@img/sharp-wasm32` from the lockfile) | the script fails on drift; a new major/minor pin is a human question |
+| Brew payload launchers | `scripts/openharmony/brew/oh-env.sh.in`, `scripts/openharmony/brew/dsh.zsh.in` | they mirror the default-root `bin/oh-env.sh` and `bin/dsh` that `deploy.sh` writes; a change to one must land in the other, or the pushed install and the brew install drift |
 | Release steps the recipe mirrors | `.github/workflows/release.yml` (pack steps), `scripts/release/verify-packed-install.ts` (platform acceptance, copied inline in `pack-tree.sh`) | a changed pack step silently diverges from the tree the recipe builds |
 | Build memory | `build:artifacts`, `typecheck` (`scripts/build.ts`) | from `7509c174d9` (0.2.2-alpha.2) host and client typechecks run with 8 GiB heaps; `--serial` exists |
 | Replay fixtures | `snapshots/session/{bash-tool-turn,fs-write,fs-glob-sampling,pty-tools-sandbox-backend}`, `packages/test-support/llm-replay` | M3/M6 depend on them |

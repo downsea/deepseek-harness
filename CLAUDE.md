@@ -66,6 +66,8 @@ A red gate that is also red on the pristine upstream tag is `upstream`: record i
 
 The HarmonyOS PC is the maintainer's real machine. You reach it **only** through `scripts/openharmony/sa-device-verify` (`--dry-run next` to read the plan, then `next` once per background job). It deploys to the agent root `/data/storage/el2/base/dsh-sa` (owner `superagent-dsh`) with a key-free env file; it never touches the maintainer's root `/data/storage/el2/base/dsh`, his `.env.private`, `~/.zshrc` or oh config. Never run `ssh`, `scp`, `hdc` or `oh` yourself, never `deploy.sh` / `push-env.sh` / `smoke.sh` by hand, never open apps or the browser on the PC. Exit codes and what to do: the skill, §8.
 
+The PC's dsh install itself is the harmonybrew package `downsea/hmos/dsh`: [`pack-bottle.sh`](scripts/openharmony/pack-bottle.sh) builds the bottle and formula, and `brew install` / `brew upgrade` replaces `/data/storage/el2/base/dsh` in place and verifies the new tree with `dsh --version`.
+
 ## 8. Evidence on the PR
 
 Every PR body states what changed, why, and the evidence: commands with exit codes and wall clock, each red classified (`upstream` / `adaptation` / `environment`), and for release PRs the nine items of the skill (conflicts, review table, `delta-check.sh` output, gates, the `sa-device-verify` evidence block, skipped tags, cost, open questions). Paste outputs verbatim; never paraphrase a number.
@@ -80,7 +82,7 @@ Every PR body states what changed, why, and the evidence: commands with exit cod
 
 ## 10. When to stop and ask
 
-Ask one concrete question on the issue (`human_action`) and wait when: the tag cannot be classified or moved; keeping HMOS behaviour needs a design choice or a change outside the delta; you would drop an HMOS behaviour because upstream covers it; a native pin drifts to a new major or minor; an adaptation red survives two fix attempts; your change touches the device recipe; `sa-device-verify` exits 2 (sshd down, recipe approval, owner, env file, disk, repeated failure or yield); anything would touch secrets, the maintainer's install, GitHub, `~/code/*` or Gitea settings.
+Ask one concrete question on the issue (`human_action`) and wait when: the tag cannot be classified or moved; keeping HMOS behaviour needs a design choice or a change outside the delta; you would drop an HMOS behaviour because upstream covers it; a native pin drifts to a new major or minor; an adaptation red survives two fix attempts; your change touches the device recipe; `sa-device-verify` exits 2 (sshd down, recipe approval, owner, env file, disk, repeated failure or yield); anything would touch secrets, the maintainer's install (other than the dsh `brew install` / `brew upgrade` of §7), GitHub, `~/code/*` or Gitea settings.
 
 ## 11. Commits
 
