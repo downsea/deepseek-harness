@@ -33,16 +33,15 @@ $R/smoke.sh --m3 --m6 hmos
 
 ## Brew package
 
-The PC's install is the harmonybrew package: `pack-bottle.sh` turns one built tree and node into the `downsea/hmos` formula and its bottle. The payload is the install `deploy.sh` writes to the default root — `tree/`, `node/bin/node` and `bin/{oh-env.sh,dsh,dsh-web}` — so a package upgrade replaces `/data/storage/el2/base/dsh` in place and the `~/.zshrc` PATH block keeps working. The formula runs `brew/deploy-payload.sh` from the keg in `post_install`; that script verifies the queued tree (`oh/SHA256SUMS`, then `dsh --version` from the staged copy), swaps it in, and refuses while a dsh from the root runs.
+The PC's install is the harmonybrew package. `pack-bottle.sh --payload-only` assembles the payload the package deploys — the install `deploy.sh` writes to the default root: `tree/`, `node/bin/node` and `bin/{oh-env.sh,dsh,dsh-web}` — so a package upgrade replaces `/data/storage/el2/base/dsh` in place and the `~/.zshrc` PATH block keeps working. The release tool `hmos-brew-release` (`nan/dsh-superagent` `tools/hmos`, ADR-0006) signs the payload, smokes it on the device, packs it as the bottle and renders `Formula/dsh.rb`; its `post_install` runs the payload's `brew/deploy-payload.sh`, which verifies the queued tree (`oh/SHA256SUMS`, then `dsh --version` from the staged copy), swaps it in, and refuses while a dsh from the root runs.
 
 ```sh
-$R/pack-bottle.sh $W/out/tree $W/node $W/bottle
-$R/pack-bottle.sh $W/out/tree $W/node $W/bottle --publish
+$R/pack-bottle.sh --payload-only $W/out/tree $W/node $W/bottle
 ```
 
-The first command writes the payload, the bottle and `dsh.rb` to `$W/bottle`; `--publish` also copies the payload and bottle to the PC's bottle directory and installs the formula into the tap, which needs a writable tap checkout.
+The command writes `$W/bottle/payload/` and prints it. A release Ticket passes that directory to `hmos-brew-release next --tree $W/bottle/payload --pr <merged PR>`; the tool writes the bottle, `Formula/dsh.rb` and the Gitea release, and this repository has no path that writes a tap or a bottle directory.
 
-On the PC: `brew update && brew install downsea/hmos/dsh`, later `brew upgrade dsh`; then `dsh --version` and `dsh-web`. `ROOT`, `BOTTLE_URL`, `BOTTLE_DIR` and `TAP_DIR` override the host paths.
+On the PC: `brew update && brew install downsea/hmos/dsh`, later `brew upgrade dsh`; then `dsh --version` and `dsh-web`. `ROOT` overrides the deployment root the launchers name.
 
 ## Scripts
 
@@ -52,7 +51,7 @@ On the PC: `brew update && brew install downsea/hmos/dsh`, later `brew upgrade d
 | `build-natives.sh <dsh> <out>` | Builds require-builtin (napi-v9), node-pty, and koffi with the NDK clang (`-static-libstdc++ -z max-page-size=4096`), builds flock through the checkout's `native/system/scripts/build.ts --target openharmony-arm64`, builds the crates.io ripgrep release that `@vscode/ripgrep` ships (`cargo install --locked --features pcre2 --target aarch64-unknown-linux-ohos`, linked with the NDK's compiler-rt builtins for PCRE2 JIT), then signs every product | A pinned version differs from the checkout's `pnpm-lock.yaml`; NEEDED names anything besides `libc.so`; a signed file lacks `.codesign`; any LOAD segment has offset ≢ vaddr (mod 4K) |
 | `make-node.sh <clt-node> <out>` | Removes only `.codesign` from the vendor-signed node and self-signs it | The source has no `.permission` section, or signing drops or changes it |
 | `pack-tree.sh [--no-build] <dsh> <natives> <out>` | Runs `build:artifacts --profile official`, the three packs of `.github/workflows/release.yml`, and a `file:` tarball install modeled on `scripts/release/verify-packed-install.ts` with platform compatibility judged for `openharmony/arm64` (`npm install --ignore-scripts --omit=optional --os=openharmony --cpu=arm64`); adds `@img/sharp-wasm32` at the lockfile's version; places the addons and the `@vscode/ripgrep-openharmony-arm64` package, and sweeps every ELF file | A placement target package is missing; a signed ELF has an incongruent LOAD segment; the signed ELF count differs from the placement count |
-| `pack-bottle.sh <tree> <node-out> <out> [--publish]` | Builds the brew payload, the `downsea/hmos` bottle and `dsh.rb`; `--publish` copies the payload and bottle to the PC's bottle directory, installs the formula into the tap and commits it when the tap is writable | The inputs are not a `pack-tree.sh` tree or a `make-node.sh` node; a published path is not writable |
+| `pack-bottle.sh --payload-only <tree> <node-out> <out>` | Assembles the release payload `<out>/payload/` — `tree/`, `node/bin/node`, `bin/{oh-env.sh,dsh,dsh-web}`, `VERSION` and `deploy-payload.sh`; the release tool signs it, smokes it, packs it as the bottle and renders the formula | The inputs are not a `pack-tree.sh` tree or a `make-node.sh` node |
 | `deploy.sh <tree> <node-out> <alias>` | Refuses while hvigor or dsh runs on the device; pushes node and tree (the new tree unpacks beside the old one and replaces it with `mv`); writes `bin/oh-env.sh`, `bin/dsh`, and `bin/dsh-web`, and adds the `PATH` block to `~/.zshrc` once; runs `sha256sum -c` on the device. A second root differs (see Second device root) | A device checksum differs; the owner marker differs |
 | `dsh-web.zsh` | Installed as `bin/dsh-web` on the device: checks the port, runs `bin/dsh --profile web --no-open`, and opens the first `dsh web:` URL with `aa start -b com.huawei.hmos.browser` | The port is already in use; dsh web exits non-zero |
 | `push-env.sh <alias> [env-file]` | Copies the host's `~/.env.private` (default) to `/data/storage/el2/base/.env.private` with mode 0600 without printing it; the device home reads 0600 back as 0640. `--root <root>` writes a second root's env file instead | The device sha256 or mode differs; a second root's file holds a credential-shaped name |
