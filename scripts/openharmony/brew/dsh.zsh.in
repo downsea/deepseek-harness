@@ -1,0 +1,6 @@
+#!/usr/bin/zsh
+# Rendered by scripts/openharmony/pack-bottle.sh: run dsh from the deployed tree under the self-signed node. It is the
+# same launcher scripts/openharmony/deploy.sh writes for the default root; a change there belongs here too
+# (KNOWN-ISSUES.md, release review inventory).
+. '@ROOT@/bin/oh-env.sh'
+exec '@ROOT@/node/bin/node' '@ROOT@/tree/node_modules/@deepseek-ai/dsh/lib/bin.js' --patch '@ROOT@/tree/oh/openharmony.patch.yml' "$@"
