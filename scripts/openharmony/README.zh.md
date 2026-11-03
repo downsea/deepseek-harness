@@ -31,6 +31,19 @@ $R/smoke.sh --m3 --m6 hmos
 
 `deploy.sh` 把 `/data/storage/el2/base/dsh/bin` 加进 HiShell 的 `PATH`（`~/.zshrc` 里一个带标记的块），所以在设备的 HiShell（zsh）里运行 `dsh --profile headless --help`；Web UI 用 `dsh-web`：它在 `127.0.0.1:3080` 上提供服务（回环是 web profile 的默认值），并在设备浏览器中打开带 token 的 URL；`dsh-web --port <n>`、`--no-open`、`--profile <name>`、`--patch <file>` 与 `-- <dsh 参数>` 可调整行为，`dsh-web --help` 列出全部选项。端口已被占用时它拒绝启动，并指出常见原因：VM 上 `dsh-web` 留下的过期 `hdc rport`。启动脚本是 zsh 脚本，它加载 `bin/oh-env.sh`，后者从 `/data/storage/el2/base/.env.private` 读入 key，并清除宿主文件里设置的代理变量。启动脚本总会在参数前加上 `--patch <tree>/oh/openharmony.patch.yml`，因此 `--profile` 等启动器选项必须写全，不能用 `dsh <name>` 简写。
 
+## brew 包
+
+PC 上的安装就是 harmonybrew 包：`pack-bottle.sh` 把一个已构建的树和 node 变成 `downsea/hmos` 的 formula 与 bottle。payload 就是 `deploy.sh` 写到默认根的那份安装 —— `tree/`、`node/bin/node` 与 `bin/{oh-env.sh,dsh,dsh-web}` —— 所以包升级原地替换 `/data/storage/el2/base/dsh`，`~/.zshrc` 里的 PATH 块继续有效。formula 在 `post_install` 里运行 keg 中的 `brew/deploy-payload.sh`：该脚本先校验排队的树（`oh/SHA256SUMS`，再从暂存副本跑 `dsh --version`），然后换入；根上有 dsh 在运行时拒绝执行。
+
+```sh
+$R/pack-bottle.sh $W/out/tree $W/node $W/bottle
+$R/pack-bottle.sh $W/out/tree $W/node $W/bottle --publish
+```
+
+第一条命令把 payload、bottle 与 `dsh.rb` 写到 `$W/bottle`；`--publish` 还会把 payload 与 bottle 复制到 PC 的 bottle 目录，并把 formula 装进 tap —— 这要求 tap 检出可写。
+
+在 PC 上：`brew update && brew install downsea/hmos/dsh`，之后用 `brew upgrade dsh`；然后 `dsh --version` 与 `dsh-web`。`ROOT`、`BOTTLE_URL`、`BOTTLE_DIR`、`TAP_DIR` 覆盖宿主路径。
+
 ## 脚本
 
 | 脚本 | 行为 | 失败条件 |
@@ -39,6 +52,7 @@ $R/smoke.sh --m3 --m6 hmos
 | `build-natives.sh <dsh> <out>` | 用 NDK clang 编 require-builtin（napi-v9）、node-pty 与 koffi（`-static-libstdc++ -z max-page-size=4096`），经检出目录的 `native/system/scripts/build.ts --target openharmony-arm64` 编 flock，编 `@vscode/ripgrep` 所带版本的 crates.io ripgrep（`cargo install --locked --features pcre2 --target aarch64-unknown-linux-ohos`，为 PCRE2 JIT 链入 NDK 的 compiler-rt builtins），然后逐件签名 | 钉住的版本与检出目录的 `pnpm-lock.yaml` 不符；NEEDED 含 `libc.so` 以外的库；签名后的文件缺 `.codesign`；任一 LOAD 段 offset ≢ vaddr (mod 4K) |
 | `make-node.sh <clt-node> <out>` | 只从厂商签名的 node 中删除 `.codesign`，再自签 | 源文件没有 `.permission` 段，或签名删除、改动了它 |
 | `pack-tree.sh [--no-build] <dsh> <natives> <out>` | 运行 `build:artifacts --profile official` 与 `.github/workflows/release.yml` 的三次打包，再仿照 `scripts/release/verify-packed-install.ts` 用 `file:` tarball 安装，平台兼容性按 `openharmony/arm64` 判断（`npm install --ignore-scripts --omit=optional --os=openharmony --cpu=arm64`）；按 lockfile 版本加装 `@img/sharp-wasm32`；放置原生插件与 `@vscode/ripgrep-openharmony-arm64` 包，并扫描所有 ELF 文件 | 缺少放置目标包；已签 ELF 有不同余的 LOAD 段；已签 ELF 数与放置数不符 |
+| `pack-bottle.sh <tree> <node-out> <out> [--publish]` | 构建 brew payload、`downsea/hmos` 的 bottle 与 `dsh.rb`；`--publish` 把 payload 与 bottle 复制到 PC 的 bottle 目录，并在 tap 可写时把 formula 装进 tap 并提交 | 输入不是 `pack-tree.sh` 的树或 `make-node.sh` 的 node；某个发布路径不可写 |
 | `deploy.sh <tree> <node-out> <alias>` | 设备上有 hvigor 或 dsh 在运行时拒绝执行；推送 node 与树（新树解包到旧树旁边，再用 `mv` 替换）；写 `bin/oh-env.sh`、`bin/dsh` 与 `bin/dsh-web`，并在 `~/.zshrc` 中加入一次 `PATH` 块；在设备上运行 `sha256sum -c`。第二设备根的行为不同（见第二设备根） | 设备侧校验和不符；属主标记不符 |
 | `dsh-web.zsh` | 在设备上装为 `bin/dsh-web`：检查端口，运行 `bin/dsh --profile web --no-open`，并用 `aa start -b com.huawei.hmos.browser` 打开第一条 `dsh web:` URL | 端口已被占用；dsh web 以非零退出 |
 | `push-env.sh <alias> [env-file]` | 把宿主的 `~/.env.private`（默认）以 0600 权限复制到 `/data/storage/el2/base/.env.private`，不打印内容；设备 home 会把 0600 读回为 0640。`--root <root>` 改为写入第二设备根的环境文件 | 设备侧 sha256 或权限不符；第二设备根的文件含凭据形态的名字 |
