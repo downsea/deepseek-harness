@@ -1,0 +1,16 @@
+# Keyless M6 overlay (smoke.sh --m6): m3-replay.patch.yml (smoke.sh concatenates the two files) plus the
+# persistent terminal stack with the real subprocess-local PTY backend, so the replayed pty-tools-sandbox-backend
+# script opens a real node-pty terminal in HiShell's login shell (zsh; the device has no bash); the shell prints a marker
+# before turning interactive, so terminal_open and terminal_read read back output the PTY produced.
+- insert:
+    - id: pty
+      name: '@deepseek-ai/dsh-terminal'
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+      config:
+        shellPath: /usr/bin/zsh
+        shellArgs: ['-c', 'echo PTY_M6_OK; exec /usr/bin/zsh -i']
+        idleSilenceMs: 1000
+        timeoutMs: 10000
+    - id: tool-terminal
+      name: '@deepseek-ai/dsh-tool-terminal'

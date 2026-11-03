@@ -97,7 +97,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     }
     let confined: ConfinedArgv | undefined
     const ex = await this.executeArgv(spec, async (signal) => {
-      const prepared = await this.confine(spec.command, { ...policy, mode }, signal)
+      const prepared = await this.confine(await this.shellArgv(spec.command, signal), { ...policy, mode }, signal)
       signal.throwIfAborted()
       confined = prepared
       return prepared.argv
@@ -176,16 +176,16 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   }
 
   /**
-   * Wrap one shell command via the `ctx.sandbox` provider. Provider errors
+   * Wrap one shell argv via the `ctx.sandbox` provider. Provider errors
    * propagate unchanged; the returned argv is handed directly to the local
    * executor's subprocess path.
-   * @param command - shell source for the confined inner `bash -c`.
+   * @param argv - the configured shell's inner `<shellPath> -c <command>` argv.
    * @param policy - resolved confined execution policy.
    * @param signal - cancellation of confinement preparation.
    * @returns the provider's exact argv and settlement-classification facts.
    */
-  private confine(command: string, policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
-    return this.ctx.sandbox.confine(['bash', '-c', command], policy, signal)
+  private confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
+    return this.ctx.sandbox.confine(argv, policy, signal)
   }
 }
 

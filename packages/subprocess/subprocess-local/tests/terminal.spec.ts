@@ -944,7 +944,7 @@ it('keeps unverified root identities unknown without leaking a failed PTY alloca
   finally { await handle.terminate() }
 })
 
-it.each(['darwin', 'linux'] as const)('retains root-exited work and respects %s session observability', async (platform) => {
+it.each(['darwin', 'linux', 'openharmony'])('retains root-exited work and respects %s session observability', async (platform) => {
   const pty = new FakePty()
   const inspector = new FakeInspector()
   const handle = new LocalTerminalHandle(pty.asPty(), inspector, 20, platform)
@@ -959,10 +959,10 @@ it.each(['darwin', 'linux'] as const)('retains root-exited work and respects %s 
     const child = { pid: 789, started: 'orphan' }
     inspector.sessionMembers = [child]
     inspector.alive.add(789)
-    expect((await handle.inspectActivity()).state).toBe(platform === 'linux' ? 'busy' : 'unknown')
+    expect((await handle.inspectActivity()).state).toBe(platform === 'darwin' ? 'unknown' : 'busy')
     inspector.alive.clear()
     inspector.sessionMembers = []
-    expect((await handle.inspectActivity()).state).toBe(platform === 'linux' ? 'idle' : 'unknown')
+    expect((await handle.inspectActivity()).state).toBe(platform === 'darwin' ? 'unknown' : 'idle')
     expect(pty.kills).toEqual([])
   } finally { await handle.terminate() }
 })

@@ -1150,10 +1150,15 @@ importers:
       '@deepseek-ai/node-addon-system-linux-x64':
         specifier: workspace:~
         version: link:../linux-x64
+      '@deepseek-ai/node-addon-system-openharmony-arm64':
+        specifier: workspace:~
+        version: link:../openharmony-arm64
 
   native/system/packages/linux-arm64: {}
 
   native/system/packages/linux-x64: {}
+
+  native/system/packages/openharmony-arm64: {}
 
   packages/acp/acp:
     dependencies:
@@ -1858,6 +1863,9 @@ importers:
 
   packages/attachment/attachment-local:
     dependencies:
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: workspace:*
+        version: link:../../util/atomic-write
       '@deepseek-ai/dsh-lazy-require':
         specifier: workspace:*
         version: link:../../util/lazy-require
@@ -10090,6 +10098,9 @@ importers:
 
   packages/fs/fs-local:
     dependencies:
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: workspace:*
+        version: link:../../util/atomic-write
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -12484,6 +12495,9 @@ importers:
 
   packages/session/session-persistence-jsonl:
     dependencies:
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: workspace:*
+        version: link:../../util/atomic-write
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm

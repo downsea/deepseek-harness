@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for 2026-10-24-no-clobber-publish-without-hard-links.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-10-24-no-clobber-publish-without-hard-links.md
+/agent-note-no-clobber-publication-without-hard-links:
+  en: 576a59d10112dbc2
+  zh: 7a9c4c6aab41a6d8
+/agent-note-no-clobber-publication-without-hard-links/problem:
+  en: 3da4f97ffea0042e
+  zh: 43233bf9042a6c1a
+/agent-note-no-clobber-publication-without-hard-links/proposal:
+  en: 1f913630118246cf
+  zh: 1754d147816c9e3f
+/agent-note-no-clobber-publication-without-hard-links/proposal/per-site-choice:
+  en: 7304804e17aeb053
+  zh: 4a8ab8ea71722f2b
+/agent-note-no-clobber-publication-without-hard-links/proposal/fallback-observability:
+  en: 42e9872a7210fa27
+  zh: 3a48a023f48674d5
+/agent-note-no-clobber-publication-without-hard-links/proposal/durable-home-boundary:
+  en: 7b77c495fa457004
+  zh: 0de08d01f982124e
+/agent-note-no-clobber-publication-without-hard-links/alternatives-considered:
+  en: d3a0112a1534e4e6
+  zh: f08670c6e68dc76b
+/agent-note-no-clobber-publication-without-hard-links/acceptance-criteria:
+  en: 1d2af463f3cd0810
+  zh: efd4e66b727dff33
+/agent-note-no-clobber-publication-without-hard-links/risks:
+  en: cd731540070207f6
+  zh: a7b037347f308e4c

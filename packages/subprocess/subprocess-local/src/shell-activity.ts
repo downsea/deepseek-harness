@@ -58,7 +58,7 @@ export class ShellActivity {
  * @returns private integration, or undefined for unsupported launches.
  */
 export function prepareShellActivity(
-  spec: SubprocessTerminalSpawnSpec, env: Record<string, string>, platform: NodeJS.Platform,
+  spec: SubprocessTerminalSpawnSpec, env: Record<string, string>, platform: string,
 ): ShellActivity | undefined {
   if (spec.shellActivity !== true || platform === 'win32' || spec.argv.length !== 2 || spec.argv[1] !== '-i') return undefined
   const shell = basename(spec.argv[0] as string)

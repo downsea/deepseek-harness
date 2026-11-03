@@ -1,0 +1,15 @@
+# Device overlay applied by the deploy.sh launcher (`dsh --patch <this> ...`) to every profile.
+# The device has no bash; HiShell's login shell is zsh (/usr/bin/zsh; /bin/sh is mksh). A patch config
+# replaces the whole plugin config, so the base bundle's timeoutMs is restated.
+- id: bash-sandbox
+  config:
+    timeoutMs: 60000
+    shellPath: /usr/bin/zsh
+
+# Web profile: dsh-api-workspace-controller resolves the first-use Workspace from the system Documents directory
+# with osascript / powershell / xdg-user-dir and throws on any other platform, so on openharmony the Web UI
+# starts with "Unable to create default workspace". Name the directory explicitly, under el2 base where every
+# filesystem primitive dsh needs holds. Profiles without this row (headless) ignore the target.
+- id: workspace-controller
+  config:
+    documentsDirectory: /data/storage/el2/base/dsh-documents

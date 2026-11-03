@@ -24,7 +24,7 @@ import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts
 import { waitWithAbort } from './managed-owner.ts'
 import { controlEnvironment, controlPipe } from './control-spawn.ts'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
-import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
+import { hasLinuxProcfs, linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
 import { OutputCollector, prepareManagedProcessBinding, type SpillFailureReporter } from './output.ts'
 
 type SpawnProcess = (
@@ -63,8 +63,8 @@ export interface SpawnInternals {
   onSpillFailure?: SpillFailureReporter
   /** Windows tree-termination runner (defaults to `taskkill /PID <pid> /T /F`). */
   taskkill?: (pid: number) => void
-  /** Host platform override for signalling decisions. */
-  platform?: NodeJS.Platform
+  /** Host platform override for signalling decisions, including `openharmony`. */
+  platform?: string
   /** Linux process-group member probe (defaults to `/proc` inspection). */
   linuxProcessGroupHasLiveMembers?: (processGroupId: number) => boolean | undefined
 }
@@ -130,7 +130,7 @@ export function taskkillProcessTree(pid: number | undefined): void {
  * signal value force-terminates — Node maps signals to TerminateProcess).
  */
 function signalTree(
-  platform: NodeJS.Platform,
+  platform: string,
   pid: number | undefined,
   sig: NodeJS.Signals,
   child: ChildProcess,
@@ -200,7 +200,7 @@ function directChildResult(child: ChildProcess): Promise<SubprocessOutcome> {
 }
 
 function fallbackOwner(
-  platform: NodeJS.Platform,
+  platform: string,
   pid: number | undefined,
   child: ChildProcess,
   taskkill: (pid: number) => void,
@@ -220,7 +220,7 @@ function fallbackOwner(
     if (platform === 'win32') return child.exitCode === null && child.signalCode === null
     try {
       process.kill(-pid, 0)
-      if (directSettled && platform === 'linux' && linuxGroupHasLiveMembers(pid) === false) return false
+      if (directSettled && hasLinuxProcfs(platform) && linuxGroupHasLiveMembers(pid) === false) return false
       return true
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code

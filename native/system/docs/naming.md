@@ -13,7 +13,7 @@ Platform suffixes carry OS and CPU. Linux libc variants live inside the same pla
 
 ## Binaries
 
-The Linux launcher remains `bin/landlock-run`. The Node-API addon is `system.node`: `bin/glibc/system.node` and `bin/musl/system.node` on Linux, `bin/system.node` on macOS.
+The Linux launcher remains `bin/landlock-run`. The Node-API addon is `system.node`: `bin/glibc/system.node` and `bin/musl/system.node` on Linux, `bin/system.node` on macOS and OpenHarmony. OpenHarmony packages use Node's `openharmony` platform name as their suffix and `os` value.
 
 ## Environment variables
 

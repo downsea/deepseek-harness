@@ -2,8 +2,9 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
-import { chmod, link, mkdir, open, readFile, unlink } from 'node:fs/promises'
-import { dirname, join, parse, resolve } from 'node:path'
+import { chmod, mkdir, open, readFile, unlink } from 'node:fs/promises'
+import { dirname, join, parse, resolve, sep } from 'node:path'
+import { publishNoClobber, type NoClobberPublication } from '@deepseek-ai/dsh-atomic-write'
 import {
   AttachmentError,
   AttachmentId,
@@ -143,25 +144,50 @@ async function syncDirectory(path: string): Promise<void> {
 }
 
 /**
+ * `syncDirectory` failure codes that report an ancestor outside this
+ * process's access, such as a sandbox root that refuses to be opened.
+ */
+const INACCESSIBLE_ANCESTOR_ERRORS: ReadonlySet<string> = new Set(['EACCES', 'EPERM'])
+
+/**
+ * Where an upward durability walk ends. `'boundary'` syncs every parent up to
+ * the vouched boundary and fails on any error. `'inaccessible-ancestor'` also
+ * ends below the boundary at the first parent the process cannot open or sync
+ * (`EACCES` / `EPERM`), provided the child entry on the path existed before
+ * this call: an entry created by another principal inside a directory this
+ * process cannot access is that principal's durability responsibility, while
+ * an entry this call created there cannot be made durable and fails.
+ */
+type DurableWalkEnd = 'boundary' | 'inaccessible-ancestor'
+
+/**
  * Create one private directory tree and persist every ancestor entry up to a
  * caller-vouched durable boundary. The walk deliberately ignores what mkdir
- * reports as newly created: a concurrent first save can create a level this
- * process then merely observes, so "already existed" is not "already durable"
- * — the entry may still be unsynced in the creator, and a crash would drop a
- * directory the session checkpoint already references. Re-syncing a durable
- * entry is harmless; skipping an unsynced one is not.
+ * reports as newly created when deciding what to sync: a concurrent first save
+ * can create a level this process then merely observes, so "already existed"
+ * is not "already durable" — the entry may still be unsynced in the creator,
+ * and a crash would drop a directory the session checkpoint already
+ * references. Re-syncing a durable entry is harmless; skipping an unsynced one
+ * is not.
  * @param path - absolute directory to create.
  * @param boundary - absolute ancestor the caller vouches is already durable.
+ * @param end - whether an inaccessible ancestor below `boundary` also ends the walk.
  */
-async function ensureDurableDirectory(path: string, boundary: string): Promise<void> {
+async function ensureDurableDirectory(path: string, boundary: string, end: DurableWalkEnd): Promise<void> {
   const target = resolve(path)
   const stop = resolve(boundary)
-  await mkdir(target, { recursive: true, mode: 0o700 })
+  const firstCreated = await mkdir(target, { recursive: true, mode: 0o700 })
   await chmod(target, 0o700)
   let level = target
   while (level !== stop) {
     const parent = dirname(level)
-    await syncDirectory(parent)
+    try {
+      await syncDirectory(parent)
+    } catch (error) {
+      if (end === 'boundary' || !INACCESSIBLE_ANCESTOR_ERRORS.has((error as NodeJS.ErrnoException).code ?? '')) throw error
+      if (firstCreated !== undefined && (level === firstCreated || level.startsWith(`${firstCreated}${sep}`))) throw error
+      return
+    }
     /* v8 ignore next -- filesystem-root guard: callers pass a boundary that is an ancestor of path, so the walk reaches it first. */
     if (parent === level) return
     level = parent
@@ -170,13 +196,16 @@ async function ensureDurableDirectory(path: string, boundary: string): Promise<v
 
 /**
  * Establish this process's proof that one DSH_HOME entry and every ancestor
- * below the filesystem root are durable. Mere existence is insufficient: a
- * concurrent process may have created the directory but not synced its parent.
+ * entry the process can reach are durable. Mere existence is insufficient: a
+ * concurrent process may have created the directory but not synced its
+ * parent. The walk ends at the filesystem root or at the first ancestor the
+ * process cannot open, whichever comes first; an app sandbox such as the
+ * HarmonyOS PC terminal refuses to open the directories above its data root.
  */
 async function ensureDurableHome(path: string): Promise<string> {
   const home = resolve(path)
   if (!durableHomes.has(home)) {
-    await ensureDurableDirectory(home, parse(home).root)
+    await ensureDurableDirectory(home, parse(home).root, 'inaccessible-ancestor')
     durableHomes.add(home)
   }
   return home
@@ -203,7 +232,8 @@ export async function commitPreparedImageFile(
 
 /**
  * Publish one immutable content-addressed object below a versioned attachment
- * root: staged write, fsync, hard-link into place, digest-verified EEXIST
+ * root: staged write, fsync, no-clobber publication (a hard link, or a
+ * writer-locked rename where the filesystem refuses hard links), digest-verified EEXIST
  * deduplication, read-only mode, and durable directory entries from the
  * target's parent up to (excluding) `root`.
  * @param root - absolute `DSH_HOME/attachments/v1` root.
@@ -263,7 +293,9 @@ export async function publishImmutableObjectStream(
 }
 
 /**
- * Publish another durable hard-link name for an existing immutable object.
+ * Publish another durable name for an existing immutable object: a hard link,
+ * or a synced copy published by writer-locked rename where the filesystem
+ * refuses hard links. The source object keeps its name either way.
  * @param root - absolute versioned attachment root.
  * @param source - existing content-addressed object below `root`.
  * @param target - new alias below `root`.
@@ -278,11 +310,15 @@ export async function publishImmutableAlias(
   const parent = dirname(target)
   try {
     const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
-    await ensureDurableDirectory(parent, boundary)
+    await ensureDurableDirectory(parent, boundary, 'boundary')
     try {
-      await link(source, target)
+      await publishNoClobber(source, target, {
+        // Display names are caller-chosen, so the lock lives beside the hex-named source object.
+        fallback: { kind: 'writer-lock', lockFile: source },
+        source: 'keep',
+      })
     } catch (error) {
-      /* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
+      /* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable publication race. */
       if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
       if (await digestFile(target) !== sha256) {
         throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
@@ -316,7 +352,7 @@ async function stageImmutableObject(
   // Every process performs that proof independently, so observing a directory
   // another process created can never be mistaken for durable publication.
   const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
-  await ensureDurableDirectory(staging, boundary)
+  await ensureDurableDirectory(staging, boundary, 'boundary')
   const temporary = join(staging, randomUUID())
   let handle
   try {
@@ -354,11 +390,15 @@ async function publishStagedObject(
 ): Promise<void> {
   const parent = dirname(target)
   try {
-    await ensureDurableDirectory(parent, staged.boundary)
+    await ensureDurableDirectory(parent, staged.boundary, 'boundary')
+    let publication: NoClobberPublication = 'hard-link'
     try {
-      await link(staged.path, target)
+      publication = await publishNoClobber(staged.path, target, {
+        fallback: { kind: 'writer-lock', lockFile: target },
+        source: 'consume',
+      })
     } catch (error) {
-      /* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
+      /* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable publication race. */
       if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
       if (await digestFile(target) !== staged.sha256) {
         throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
@@ -366,7 +406,8 @@ async function publishStagedObject(
     }
     // Windows shares the read-only attribute across hard links and refuses to
     // unlink either name once it is set, so discard the staging name first.
-    await unlink(staged.path)
+    // A rename publication already consumed it.
+    if (publication === 'hard-link') await unlink(staged.path)
     // The target remains the sole link for a new object; this also restores
     // read-only mode when the deduplication path observes an existing object.
     await chmod(target, 0o400)

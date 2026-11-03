@@ -9,20 +9,23 @@
   en: ed491d62812ad8cc
   zh: 653e184dd035ec71
 /deepseek-ai-dsh-atomic-write/summary:
-  en: d2d40e759179f047
-  zh: c53f56de74b26e5a
+  en: d4be22134c791ef4
+  zh: 2589485260c9df02
 /deepseek-ai-dsh-atomic-write/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-atomic-write/use-this-package:
-  en: 30fbc2c61904195d
-  zh: 09c2ac3f44aa3f08
+  en: 1f2ea8d5a54fd77d
+  zh: 7fff3adb7c5a596e
 /deepseek-ai-dsh-atomic-write/use-this-package/writing-a-file-atomically:
   en: 7b757dc3c3b27335
   zh: a097d90a2561475d
 /deepseek-ai-dsh-atomic-write/use-this-package/coordinating-writers:
-  en: 77c865c1f78d2a0c
-  zh: 5a91874c352c6f18
+  en: f25104191db4b69c
+  zh: 6af27a2129f8210b
+/deepseek-ai-dsh-atomic-write/use-this-package/publishing-without-replacement:
+  en: ea9703d88bd8a9c4
+  zh: f78fec17e93a76b5
 /deepseek-ai-dsh-atomic-write/use-this-package/failures-to-plan-for:
   en: a8292aa69d7f909c
   zh: 60d8403fa6e04d17
@@ -30,11 +33,11 @@
   en: 93b537308f7c88c7
   zh: 282e0d2042aeb1be
 /deepseek-ai-dsh-atomic-write/understand-the-implementation/source-map:
-  en: aee5320dc8746377
-  zh: f35dbbf350f7b5cf
+  en: 204d90f3fa9c3fd4
+  zh: 50871f237ca5c544
 /deepseek-ai-dsh-atomic-write/understand-the-implementation/write-path:
-  en: 9b84481fd4a97a49
-  zh: 09e25c77eb5e53fb
+  en: 9bc457128c4d6b83
+  zh: 0da5973662f3a5d7
 /deepseek-ai-dsh-atomic-write/understand-the-implementation/why-the-swap-stays-safe:
   en: 784e985c1fb3a25e
   zh: 4afda1b9bf5f29cc
@@ -48,8 +51,8 @@
   en: 815e93723a98919c
   zh: 921da870f67e4033
 /deepseek-ai-dsh-atomic-write/known-limitations-and-deferred-work:
-  en: fa413fe1ee23e01f
-  zh: 8563b57f91ea194b
+  en: 7a83e5696334ad54
+  zh: 70263e4842c22179
 /deepseek-ai-dsh-atomic-write/known-limitations-and-deferred-work/dev-note:
   en: d3461ceeaf041974
   zh: f59df2adbf52fed9

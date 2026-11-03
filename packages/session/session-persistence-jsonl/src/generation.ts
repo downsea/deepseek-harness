@@ -8,6 +8,7 @@
  */
 
 import { currentSessionMessageProjections } from '@deepseek-ai/dsh-session-format-catalog/message-projections'
+import { publishNoClobber, type NoClobberPublication } from '@deepseek-ai/dsh-atomic-write'
 import { createHash, randomBytes } from 'node:crypto'
 import {
   link as fsLink,
@@ -814,32 +815,44 @@ async function removeCommittedTemporary(
   }
 }
 
+/**
+ * Outcome of one exclusive current-generation publication: `'occupied'` when
+ * another writer already owns the current name, otherwise whether the staged
+ * name still exists after publishing it.
+ */
+type CurrentPublication = 'occupied' | 'stage-retained' | 'stage-consumed'
+
 async function publishCurrentExclusive(
   staged: string,
   currentPath: string,
   internals: JsonlGenerationInternals,
-): Promise<boolean> {
+): Promise<CurrentPublication> {
   if (internals.platform === 'win32') {
     try {
       await internals.publishNewWin32(staged, currentPath)
-      return true
+      return 'stage-consumed'
     } catch (error) {
       /* v8 ignore else -- native helper tests own non-collision Win32 failures. */
-      if (isEEXIST(error)) return false
+      if (isEEXIST(error)) return 'occupied'
       /* v8 ignore next -- the filesystem error is already complete. */
       throw error
     }
   }
+  let publication: NoClobberPublication
   try {
-    await internals.fs.link(staged, currentPath)
+    publication = await publishNoClobber(staged, currentPath, {
+      fallback: { kind: 'writer-lock', lockFile: currentPath },
+      source: 'consume',
+      link: (existingPath, newPath) => internals.fs.link(existingPath, newPath),
+    })
   } catch (error) {
     /* v8 ignore else -- a non-collision filesystem error propagates unchanged. */
-    if (isEEXIST(error)) return false
+    if (isEEXIST(error)) return 'occupied'
     /* v8 ignore next -- the filesystem error is already complete. */
     throw error
   }
   await syncDirectory(dirname(currentPath), internals)
-  return true
+  return publication === 'rename' ? 'stage-consumed' : 'stage-retained'
 }
 
 function asError(error: unknown): Error {
@@ -908,11 +921,11 @@ async function publishPreparedMigration(
     if (identity(beforePublish) !== identity(sourceIdentity)) {
       throw new JsonlGenerationSourceChangedError(sourcePath)
     }
-    const published = await publishCurrentExclusive(staged.path, currentPath, internals)
-    if (published && internals.platform === 'win32') staged = { ...staged, path: '' }
+    const publication = await publishCurrentExclusive(staged.path, currentPath, internals)
+    if (publication === 'stage-consumed') staged = { ...staged, path: '' }
     await internals.barrier('after-publication', 1)
     let currentIdentity: JsonlPhysicalIdentity
-    if (published) {
+    if (publication !== 'occupied') {
       if (staged.path !== '') {
         await removeCommittedTemporary(staged.path, internals)
         staged = { ...staged, path: '' }

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-atomic-write` to replace a file without exposing partial content or following a symlinked temporary path. Its writer lock serializes read-modify-write cycles across processes so concurrent writers cannot overwrite one another with stale state. Each replacement uses caller-selected permission bits on a fresh inode, which safely narrows an existing file's permissions. This zero-dependency library accepts strings and binary byte arrays; it does not provide a `cordis.yml` plugin or crash durability because it does not call `fsync`.
+Use `dsh-atomic-write` to replace a file without exposing partial content or following a symlinked temporary path. Its writer lock serializes read-modify-write cycles across processes so concurrent writers cannot overwrite one another with stale state. Each replacement uses caller-selected permission bits on a fresh inode, which safely narrows an existing file's permissions. Its no-clobber publication also works on filesystems without hard links. This zero-dependency library accepts strings and binary byte arrays; it provides no `cordis.yml` plugin and no crash durability.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Use `dsh-atomic-write` to replace a file without exposing partial content or fol
 <a id="use-this-package"></a>
 ## Use this package
 
-Use `writeFileAtomic` when a file-backed store must replace complete text or binary content without ever exposing a partial, symlink-hijacked, or wider-permission state, and `withFileLock` when several processes read-modify-write the same file. The smallest path is one call with the final content and the replacement's permission bits.
+Use `writeFileAtomic` when a file-backed store must replace complete text or binary content without ever exposing a partial, symlink-hijacked, or wider-permission state, `withFileLock` when several processes read-modify-write the same file, and `publishNoClobber` when a staged file must be published without replacing an existing one. The smallest path is one call with the final content and the replacement's permission bits.
 
 ### Writing a file atomically
 
@@ -56,6 +56,29 @@ await withFileLock('/home/u/.dsh/cordis.patch.yml', async () => {
 
 Only writers contend — readers never take the lock — and a contender backs off exponentially and fails with a timed-out error rather than blocking forever. How long a contender waits is stated per call through `waitMs`: the default is sized for file work alone, so a holder whose cycle includes a network round trip — a credential mutation that refreshes an expired token — states a longer one, because leaving the default would fail every other writer of that file for the duration. The retry cadence stays fixed. A contender removes an existing lock only when the lock names a process that no longer exists; file age alone never removes a lock.
 
+<a id="publishing-without-replacement"></a>
+### Publishing without replacement
+
+When a complete staged file must appear under a name that must not already exist, use `publishNoClobber`:
+
+```ts
+import { publishNoClobber } from '@deepseek-ai/dsh-atomic-write'
+
+declare const staged: string
+declare const target: string
+const publication = await publishNoClobber(staged, target, {
+  fallback: { kind: 'writer-lock', lockFile: target },
+  source: 'consume',
+})
+```
+
+It tries a hard link first, so a filesystem with hard links behaves exactly as `link(2)`. Only a link failure that can report missing hard-link support (`EPERM`, `EACCES`, `ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`) selects the stated fallback, and a genuine permission failure still fails in the fallback's own create or rename in the same directory; any other link failure is rethrown, and an occupied target fails with `EEXIST` on every path. The result is `'hard-link'` when the staged name still exists and `'rename'` when a `consume` publication moved it. Choose the fallback by who owns the directory:
+
+- `writer-lock` renames under `withFileLock(lockFile)` after confirming the target is absent. Readers see no file or the complete content, but exclusivity covers only publishers that name the same `lockFile`, and its `.lock` sibling must be a name the caller owns.
+- `exclusive-reservation` claims the target with an empty `wx` file and renames over it. Exclusivity covers every creator, but a reader can see the empty file until the rename, and a crash in that window leaves it.
+
+`source: 'keep'` leaves the source name in place by renaming a synced copy instead. The caller syncs the parent directory after publication.
+
 ### Failures to plan for
 
 Windows retries one `EPERM` when the lock cannot be observed, because its holder can release between exclusive creation and the existence check. A repeated unconfirmed `EPERM` is rethrown without running the operation.
@@ -76,13 +99,15 @@ The package is built on one separation: the atomic commit owns the swap, and the
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `writeFileAtomic` and `withFileLock`, the package's whole surface |
+| [`src/index.ts`](src/index.ts) | `writeFileAtomic`, `withFileLock`, and `publishNoClobber`, the package's whole surface |
 
 ### Write path
 
 `writeFileAtomic` writes a random-suffix sibling opened with exclusive create (`wx`), then renames it over the target. The exclusive open refuses to follow a symlink planted at a guessable temp path; the same-directory sibling keeps the rename on one filesystem; and the rename replaces a symlinked target itself instead of writing through to its referent. A Windows retry keeps the same complete sibling and uses bounded exponential backoff, so temporary use of the target by software outside the cooperative writer lock cannot turn a safe replacement into an immediate failure; the archived [retry decision record](../../../.agents/notes/archived/bug-fix/2026-08-29-windows-atomic-replace-retry.md) documents the original rationale and rejected alternatives.
 
 `withFileLock` creates a `<filename>.lock` sibling with `wx`. `EEXIST` identifies contention directly; `EPERM` does so only when a fresh `lstat` confirms the lock path exists, covering Windows exclusive-create behavior without hiding an unrelated permission failure. The lock records its creator's PID as `<pid>\n` and is removed by the holder in a `finally`. A contender that reads a record whose PID a signal probe reports as absent (`ESRCH`) creates a `<filename>.lock.takeover-<record hash>` claim with `wx`, re-reads the lock and probes its PID again, removes it only if it still holds the same record and that PID is still absent, removes the claim, and retries at once. A holder that exists under another user (`EPERM`) and a record naming the contender's own process are waited for. Contenders that read the same record contend for one claim, and the second probe rejects a holder that reused the exited PID, so a takeover never removes a lock that another contender acquired after the exited holder's. Takeover proves only that the recorded process exited; an operation that starts other writers leaves its successor a way to find them, as the [Plugin Manager](../../boot/plugin-manager/README.md) does for its pnpm runs. Contention backs off exponentially and fails when the per-call `waitMs` deadline (default two seconds) passes; the [historical takeover decision record](../../../.agents/notes/archived/bug-fix/2026-09-24-exited-holder-lock-takeover.md) records the rationale.
+
+`publishNoClobber` attempts `link(2)` and leaves its result authoritative unless the errno reports missing hard-link support. The `writer-lock` fallback reuses `withFileLock`, so a crashed publisher's lock is taken over by the same exited-holder rule, and reports an occupied target with the same `EEXIST` fields (`syscall: 'link'`, `path`, `dest`) a hard link reports. The `exclusive-reservation` fallback removes its empty claim after a failed rename only while the target is still the claimed inode, so it never deletes a file another writer put there. The [no-clobber decision record](../../../.agents/notes/proposed/architecture/2026-10-24-no-clobber-publish-without-hard-links.md) compares the alternatives.
 
 ### Why the swap stays safe
 
@@ -121,7 +146,7 @@ Nothing here enters a request prefix, so provider cache reuse is unaffected.
 
 These limits define where the package is not the right tool. They are current package constraints, not a task backlog.
 
-- **Atomic, not durable** — no `fsync` of the file or its directory, so after a crash the rename may be observed unwound. The file-backed stores here re-read and republish on boot, keeping durability the caller's policy.
+- **Atomic, not durable** — no `fsync` of the file or its directory (except the source copy of a `keep` publication), so after a crash the rename may be observed unwound. The file-backed stores here re-read and republish on boot, keeping durability the caller's policy.
 - **Callers supply complete content** — strings and `Uint8Array` (including `Buffer`) are accepted; streaming writes are unsupported.
 - **Some orphaned locks require operator recovery** — a lock whose record is empty or incomplete, or names a PID a live process reused, stays in place; later writers time out without deleting it. A contender that ends between creating a claim and removing the lock leaves both `<filename>.lock` and `<filename>.lock.takeover-<record hash>`, and the operator removes both.
 - **One host and one PID namespace** — the probe runs on the contender's host. Writers on several hosts sharing a network filesystem, or containers sharing a volume, can see a live holder as exited, take over its lock, and write at the same time as it.

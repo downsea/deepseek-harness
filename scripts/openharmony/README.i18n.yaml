@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write scripts/openharmony/README.md
+/openharmony-device-recipe:
+  en: f5a859cc04c9149a
+  zh: a5ef5a516eec46e9
+/openharmony-device-recipe/prerequisites:
+  en: e7a5fc3308aac443
+  zh: 732d32942d1aa6e0
+/openharmony-device-recipe/run-the-recipe:
+  en: 7e899275bdfac1dd
+  zh: 6a2737e20c61e3c3
+/openharmony-device-recipe/scripts:
+  en: 9b6f529832f6ae88
+  zh: 8f3abc33a0d3b96c
+/openharmony-device-recipe/addon-placement:
+  en: d5fa21cc016c1da7
+  zh: 08fec8794a0d957c
+/openharmony-device-recipe/device-environment:
+  en: f0ce37cf7055a30d
+  zh: 283dad8a30ccc314
+/openharmony-device-recipe/m3-replay:
+  en: 0f8812f5725575ec
+  zh: 7fedf2ad763e299f
+/openharmony-device-recipe/m6-checks:
+  en: ba28f873fc2b9ce9
+  zh: b1c93e28c59ece8e
+/openharmony-device-recipe/second-device-root:
+  en: e65a641b6573e54a
+  zh: 914b1d1c8da5cd53
+/openharmony-device-recipe/constraints:
+  en: 8e6b4ba9cfdb14e5
+  zh: 8c5fffc78869a7ec

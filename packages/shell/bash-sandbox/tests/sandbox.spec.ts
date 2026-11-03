@@ -210,6 +210,17 @@ describe('the provider hand-off', () => {
     }])
   })
 
+  it('hands the provider the configured shellPath as the inner argv[0]', async () => {
+    const { bash, calls } = await setup({ shellPath: '/bin/sh' })
+    const result = await run(bash, bash.resolve({ command: 'echo "$0"' }))
+    expect(result.stdout.text).toBe('/bin/sh\n')
+    expect(calls.map(call => call.argv)).toEqual([['/bin/sh', '-c', 'echo "$0"']])
+  })
+
+  it('fails load for an unresolvable shellPath', async () => {
+    await expect(setup({ shellPath: '/nonexistent/dsh-shell' })).rejects.toThrow('bash-local: shellPath "/nonexistent/dsh-shell"')
+  })
+
   it('hands the provider\'s returned argv directly to ctx.subprocess.spawn', async () => {
     const returnedArgv = ['env', 'DSH_WRAP=1', 'bash', '-c', 'printf "%s" "$DSH_WRAP"']
     const { ctx, bash } = await setup({}, () => ({ argv: returnedArgv, enforcement: 'full', denialSignatures: UNIX_SIGNATURES, runnerFailureRules: RUNNER_FAILURE }))

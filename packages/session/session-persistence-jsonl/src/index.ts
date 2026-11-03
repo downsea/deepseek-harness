@@ -14,12 +14,13 @@ import {
   sessionFormatCatalog,
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { readdirSync, type Dirent } from 'node:fs'
-import { open, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, mkdir, readdir, realpath, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
 import { createHash, randomBytes } from 'node:crypto'
 import pLimit, { type LimitFunction } from 'p-limit'
+import { publishNoClobber, type NoClobberPublication } from '@deepseek-ai/dsh-atomic-write'
 import {
   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
@@ -1294,23 +1295,28 @@ class JsonlSessionPersistence extends SessionPersistence {
     await this.syncDirPosix(project)
     await this.rejectExistingLog(finalPath, id)
     const tmp = await this.writeSyncedTempFile(finalPath, content)
-    // Publish via link()+unlink(), NOT rename(): link fails with EEXIST if the
-    // final path already exists, so two processes materializing the same id
-    // concurrently cannot clobber each other. rename() would silently overwrite.
-    let linked = false
+    // Publish without replacement, NOT with a bare rename(): an occupied final
+    // path fails with EEXIST, so two processes materializing the same id
+    // concurrently cannot clobber each other. The writer-lock fallback serves
+    // filesystems without hard links; this backend owns every name in `dir`.
+    let publication: NoClobberPublication | undefined
     try {
-      await link(tmp, finalPath)
-      linked = true
+      publication = await publishNoClobber(tmp, finalPath, {
+        fallback: { kind: 'writer-lock', lockFile: finalPath },
+        source: 'consume',
+      })
     } finally {
       // Remove an unpublished temp on failure. After publication, defer cleanup
       // until the directory entry is durable so cleanup cannot reject a live log.
-      /* v8 ignore next -- link failure is the TOCTOU/IO race guarded above; not reachable in test */
-      if (!linked) await rm(tmp, { force: true })
+      /* v8 ignore next -- publication failure is the TOCTOU/IO race guarded above; not reachable in test */
+      if (publication === undefined) await rm(tmp, { force: true })
     }
-    // link() succeeded — the log is published. fsync the directory so the new
-    // entry survives a power loss: the new link is not crash-durable until the
-    // parent directory's metadata is synced.
+    // The log is published. fsync the directory so the new entry survives a
+    // power loss: the new name is not crash-durable until the parent
+    // directory's metadata is synced.
     await this.syncDirPosix(dir)
+    // A rename publication consumed the temp; a hard link left a redundant name.
+    if (publication === 'rename') return
     // Best-effort temp cleanup: the log is already published and durable, so a
     // failure to remove the redundant temp hard link must NOT reject the
     // append. Swallow only the rm failure; nothing else of consequence runs here.

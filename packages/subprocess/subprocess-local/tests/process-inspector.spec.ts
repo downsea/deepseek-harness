@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createProcessInspector,
+  hasLinuxProcfs,
   linuxProcessGroupHasLiveMembers,
   parseProcStat,
 } from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
@@ -356,5 +357,19 @@ describe('macOS process inspector', () => {
     expect(createProcessInspector('darwin', 'arm64', fake.internals).foregroundPgid(1)).toBeUndefined()
     expect(createProcessInspector('win32', 'x64', fake.internals)).toBeInstanceOf(WindowsProcessInspector)
     expect(() => createProcessInspector('freebsd', 'x64', fake.internals)).toThrow('unsupported on platform freebsd')
+  })
+
+  it('reads Linux /proc on OpenHarmony and rejects other non-Linux platform names', () => {
+    expect(['linux', 'openharmony', 'darwin', 'freebsd', 'ohos', 'harmonyos'].map(hasLinuxProcfs))
+      .toEqual([true, true, false, false, false, false])
+    const fake = fakeInternals()
+    fake.dirs.set('/proc', ['10', '11'])
+    fake.files.set('/proc/10/stat', stat(10, 10, 10, 11, '500'))
+    fake.files.set('/proc/11/stat', stat(11, 11, 10, 11, '600', 10))
+    const inspector = createProcessInspector('openharmony', 'arm64', fake.internals)
+    expect(inspector.foregroundPgid(10)).toBe(11)
+    expect(inspector.snapshot().tree(10)).toEqual([{ pid: 11, started: '600' }, { pid: 10, started: '500' }])
+    expect(inspector.snapshot().session(10)).toHaveLength(2)
+    expect(() => createProcessInspector('ohos', 'arm64', fake.internals)).toThrow('unsupported on platform ohos')
   })
 })

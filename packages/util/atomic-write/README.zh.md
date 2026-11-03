@@ -9,7 +9,7 @@ kind: "package-library"
 
 ## 概述
 
-使用 `dsh-atomic-write` 替换文件时，不会暴露部分内容，也不会跟随临时路径上的符号链接。它的写锁会跨进程串行化读-修改-写入循环，因此并发写入方不会用陈旧状态相互覆盖。每次替换都会在全新 inode 上使用调用方选择的权限位，从而安全地收窄现有文件的权限。这个零依赖库接受字符串和二进制字节数组；它不提供 `cordis.yml` 插件，也不保证崩溃持久性，因为它不调用 `fsync`。
+使用 `dsh-atomic-write` 替换文件时，不会暴露部分内容，也不会跟随临时路径上的符号链接。它的写锁会跨进程串行化读-修改-写入循环，因此并发写入方不会用陈旧状态相互覆盖。每次替换都会在全新 inode 上使用调用方选择的权限位，从而安全地收窄现有文件的权限。它的不覆盖发布在不支持硬链接的文件系统上同样可用。这个零依赖库接受字符串和二进制字节数组；它不提供 `cordis.yml` 插件，也不保证崩溃持久性。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-library"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当文件型存储必须替换完整文本或二进制内容、且绝不允许暴露部分写入、符号链接劫持或权限过宽状态时，使用 `writeFileAtomic`；当多个进程对同一文件执行读-修改-写入循环时，使用 `withFileLock`。最小路径是一次调用，传入最终内容与替换 inode 的权限位。
+当文件型存储必须替换完整文本或二进制内容、且绝不允许暴露部分写入、符号链接劫持或权限过宽状态时，使用 `writeFileAtomic`；当多个进程对同一文件执行读-修改-写入循环时，使用 `withFileLock`；当暂存文件必须在不替换已有文件的前提下发布时，使用 `publishNoClobber`。最小路径是一次调用，传入最终内容与替换 inode 的权限位。
 
 ### 原子写入文件
 
@@ -56,6 +56,29 @@ await withFileLock('/home/u/.dsh/cordis.patch.yml', async () => {
 
 只有写入方会竞争——读取方从不取锁——竞争者按指数退避，超时后报错，而不是无限阻塞。竞争者等待多久由每次调用经 `waitMs` 声明：默认值只按纯文件工作量级选定，因此持锁方循环若包含一次网络往返——例如刷新过期 token 的凭据变更——就应声明更长的值，否则该文件的其他写入方在这段时间内都会失败。退避节奏保持固定。只有当锁记录的进程已不存在时，竞争者才会移除已有锁；单凭文件存续时间绝不会移除锁。
 
+<a id="publishing-without-replacement"></a>
+### 不替换地发布
+
+当一个完整的暂存文件必须出现在一个尚不存在的名字下时，使用 `publishNoClobber`：
+
+```ts
+import { publishNoClobber } from '@deepseek-ai/dsh-atomic-write'
+
+declare const staged: string
+declare const target: string
+const publication = await publishNoClobber(staged, target, {
+  fallback: { kind: 'writer-lock', lockFile: target },
+  source: 'consume',
+})
+```
+
+它先尝试硬链接，因此支持硬链接的文件系统上行为与 `link(2)` 完全一致。只有可能表示缺少硬链接支持的链接失败（`EPERM`、`EACCES`、`ENOTSUP`、`EOPNOTSUPP`、`ENOSYS`）才会选用声明的回退，真正的权限故障仍会在回退于同一目录中的创建或 rename 处失败；其他链接失败原样重新抛出，目标已存在时每条路径都以 `EEXIST` 失败。暂存名仍存在时结果为 `'hard-link'`，`consume` 发布移走了它时结果为 `'rename'`。按目录归谁所有选择回退：
+
+- `writer-lock` 在 `withFileLock(lockFile)` 下确认目标不存在后 rename。读取方只会看到无文件或完整内容，但排他性只覆盖指定同一 `lockFile` 的发布者，且其 `.lock` 同级名必须归调用方所有。
+- `exclusive-reservation` 用一个 `wx` 空文件占住目标，再 rename 覆盖它。排他性覆盖所有创建者，但读取方在 rename 之前可能看到空文件，在这段窗口内崩溃会留下它。
+
+`source: 'keep'` 改为 rename 一份已同步的副本，从而保留源文件名。发布后由调用方同步父目录。
+
 ### 需要规划的失败
 
 Windows 在无法观察到锁时会对 `EPERM` 重试一次，因为持锁方可能在独占创建与存在性检查之间释放锁。再次出现无法确认锁存在的 `EPERM` 时，会重新抛出错误且不运行操作。
@@ -76,13 +99,15 @@ Windows 在无法观察到锁时会对 `EPERM` 重试一次，因为持锁方可
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `writeFileAtomic` 与 `withFileLock`，即本包的全部接口 |
+| [`src/index.ts`](src/index.ts) | `writeFileAtomic`、`withFileLock` 与 `publishNoClobber`，即本包的全部接口 |
 
 ### 写入路径
 
 `writeFileAtomic` 先以独占创建（`wx`）打开一个随机后缀的同级文件并写入内容，然后 rename 到目标上。独占打开拒绝跟随预先埋在可猜测临时路径上的符号链接；同目录兄弟文件保证 rename 落在同一文件系统上；rename 替换的是目标位置的符号链接本身，绝不写穿到该链接指向的文件。Windows 重试会保留同一份完整的兄弟文件，并采用有界指数退避，因此协作式写锁之外的软件瞬时占用目标时，不会让安全替换立即失败；已归档的[重试决策记录](../../../.agents/notes/archived/bug-fix/2026-08-29-windows-atomic-replace-retry.md)记录了最初的理由与被拒绝的替代方案。
 
 `withFileLock` 以 `wx` 创建 `<filename>.lock` 同级文件。`EEXIST` 直接表示竞争；只有一次新的 `lstat` 确认锁路径存在时，`EPERM` 才表示竞争，从而兼容 Windows 的独占创建行为，又不掩盖无关的权限故障。锁以 `<pid>\n` 记录创建者的 PID，由持有者在 `finally` 中移除。竞争者读到的记录若经信号探测报告该 PID 不存在（`ESRCH`），就以 `wx` 创建 `<filename>.lock.takeover-<记录哈希>` 认领文件，重新读取锁并再次探测其 PID，仅当锁仍是同一条记录且该 PID 仍不存在时才移除它，随后移除认领文件并立即重试。以其他用户身份存在的持有者（`EPERM`）和指向竞争者自身进程的记录会继续等待。读到同一条记录的竞争者争用同一个认领文件，第二次探测会排除复用了已退出 PID 的持有者，因此接管绝不会移除另一个竞争者在已退出持有者之后获得的锁。接管只能证明记录中的进程已退出；启动了其他写入者的操作要为后继者留下找到它们的途径，[Plugin Manager](../../boot/plugin-manager/README.zh.md) 对其 pnpm 运行就是这样做的。竞争按指数退避，在每次调用声明的 `waitMs` 期限（默认两秒）过后失败；[历史接管决策记录](../../../.agents/notes/archived/bug-fix/2026-09-24-exited-holder-lock-takeover.md)负责说明理由。
+
+`publishNoClobber` 先尝试 `link(2)`，除非 errno 报告缺少硬链接支持，否则以其结果为准。`writer-lock` 回退复用 `withFileLock`，因此崩溃发布者留下的锁按同一条“持有者已退出”规则被接管；目标已存在时，它报告与硬链接相同字段的 `EEXIST`（`syscall: 'link'`、`path`、`dest`）。`exclusive-reservation` 回退在 rename 失败后只在目标仍是自己占位的 inode 时才移除空占位文件，因此绝不删除另一个写入方放在那里的文件。[不覆盖发布的决策记录](../../../.agents/notes/proposed/architecture/2026-10-24-no-clobber-publish-without-hard-links.zh.md)比较了各替代方案。
 
 ### 交换为何安全
 
@@ -121,7 +146,7 @@ Windows 在无法观察到锁时会对 `EPERM` 重试一次，因为持锁方可
 
 这些限制说明本包何时不是合适的工具。它们是当前包约束，不是任务积压。
 
-- **原子但不保证持久**——不对文件或其所在目录做 `fsync`，因此崩溃后可能观察到 rename 被回退。此处的文件型存储在启动时重新读取并重新发布，把持久性留作调用方的策略。
+- **原子但不保证持久**——不对文件或其所在目录做 `fsync`（`keep` 发布的源文件副本除外），因此崩溃后可能观察到 rename 被回退。此处的文件型存储在启动时重新读取并重新发布，把持久性留作调用方的策略。
 - **调用方提供完整内容**——接受字符串或 `Uint8Array`（包括 `Buffer`）；不支持流式写入。
 - **部分遗留锁需要操作者恢复**——锁记录为空或不完整，或其 PID 已被存活进程复用时，锁会留在原地；后续写入方超时也不会删除它。竞争者若在创建认领文件与移除锁之间结束，会同时留下 `<filename>.lock` 和 `<filename>.lock.takeover-<记录哈希>`，由操作者删除两者。
 - **单一主机与单一 PID 命名空间**——探测在竞争者所在主机上进行。多台主机通过网络文件系统共享、或多个容器共享同一卷时，写入方可能把存活持有者视为已退出，接管其锁并与之同时写入。

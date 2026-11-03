@@ -61,22 +61,46 @@ jobs:
         run: pnpm install --filter @deepseek-ai/node-addon-system-workspace... --frozen-lockfile
 
       - name: Install musl toolchain
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.cross == ''
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq musl-tools
 
+      - name: Install the OpenHarmony NDK
+        id: ohos
+        if: matrix.cross == 'openharmony'
+        uses: openharmony-rs/setup-ohos-sdk@v1.0.1
+        with:
+          version: '5.0.0'
+          components: native
+
       - name: Build native binaries
+        if: matrix.cross == ''
         run: pnpm build:native
+
+      - name: Cross-build native binaries
+        if: matrix.cross == 'openharmony'
+        run: pnpm build:native --target ${{ matrix.platform }} --ohos-ndk "$OHOS_NDK"
+        env:
+          OHOS_NDK: ${{ steps.ohos.outputs.ohos_sdk_native }}
 
       - name: Verify binary metadata
         run: node ./scripts/verify-launcher-binary.mjs ${{ matrix.dir }}
 
       - name: Verify the built entry and flock
+        if: matrix.cross == ''
         run: |
           pnpm build:ts
           pnpm build:test-oracle
           pnpm test:flock
+          pnpm test:packaging
+
+      # A cross-built payload cannot run on its builder; its format and the
+      # package rules are what this leg can check.
+      - name: Verify the package rules
+        if: matrix.cross != ''
+        run: |
+          pnpm build:ts
           pnpm test:packaging
 
       - name: Upload prebuild artifact

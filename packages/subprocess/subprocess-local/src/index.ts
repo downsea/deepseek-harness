@@ -258,7 +258,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   }
 
   private warnFallback(
-    platform: NodeJS.Platform,
+    platform: string,
     kind: 'ordinary' | 'terminal',
     selectedReason?: string,
   ): void {
@@ -281,7 +281,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   async terminalEnvironment(signal?: AbortSignal): Promise<SubprocessTerminalEnvironment> {
     signal?.throwIfAborted()
     const platform = process.platform === 'win32' ? 'windows' : 'posix'
-    const defaultShell = platform === 'windows' ? process.env.ComSpec || undefined : process.env.SHELL || userInfo().shell || undefined
+    const defaultShell = platform === 'windows' ? process.env.ComSpec || undefined : process.env.SHELL || accountShell() || undefined
     return { platform, ...defaultShell === undefined ? {} : { defaultShell } }
   }
 
@@ -361,6 +361,29 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     void handle.done.then(release, release).catch(() => {})
     return handle
   }
+}
+
+/**
+ * Read the current account's login shell from the host account database.
+ * @returns the recorded shell, or `undefined` when the database has no entry
+ *   for this uid (OpenHarmony app sandboxes have no passwd record) or records none.
+ * @throws any other account-database failure, unchanged.
+ */
+function accountShell(): string | undefined {
+  try {
+    return userInfo().shell ?? undefined
+  } catch (error) {
+    if (isMissingAccountRecord(error)) return undefined
+    throw error
+  }
+}
+
+/** Node's `uv_os_get_passwd` failure for a uid without an account-database entry. */
+function isMissingAccountRecord(error: unknown): boolean {
+  return error instanceof Error
+    && 'code' in error && error.code === 'ERR_SYSTEM_ERROR'
+    && 'info' in error && typeof error.info === 'object' && error.info !== null
+    && 'code' in error.info && error.info.code === 'ENOENT'
 }
 
 /** Read a Windows environment key using the platform's case-insensitive semantics. */

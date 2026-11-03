@@ -8,11 +8,16 @@
  * read-modify-write cycle can never resurrect a state another writer just
  * replaced; readers stay lock-free because the rename commit is atomic. A lock
  * whose recorded holder process no longer exists is taken over.
+ * `publishNoClobber` publishes a complete staged file under a name that must
+ * not already exist: a hard link where the filesystem supports one, otherwise
+ * a rename guarded by the caller-selected reservation.
  * @module @deepseek-ai/dsh-atomic-write
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { copyFile, link, lstat, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { constants as osConstants } from 'node:os'
 import { dirname } from 'node:path'
 import { setTimeout as wait } from 'node:timers/promises'
 
@@ -270,4 +275,187 @@ export async function withFileLock<T>(
   } finally {
     await rm(lockPath, { force: true })
   }
+}
+
+/**
+ * `link(2)` error codes that can report a filesystem without hard-link
+ * support rather than a collision. `EPERM` is what Linux and the HarmonyOS PC
+ * home filesystem (hmdfs) report for a filesystem that refuses hard links;
+ * `EACCES` is what the HarmonyOS PC app-data filesystem (hmfs, under
+ * `/data/storage/el2/base`) reports for the same refusal while it still
+ * permits a rename in that directory; `ENOTSUP` / `EOPNOTSUPP` and `ENOSYS`
+ * are the other codes a filesystem or kernel uses for an unimplemented
+ * operation. A genuine permission failure behind `EPERM` or `EACCES` still
+ * fails: every fallback creates or renames in the same directory and reports
+ * the same refusal. `EXDEV` is excluded: every caller stages next to the
+ * target, so a cross-device report is a caller defect that a rename would
+ * repeat.
+ */
+const HARD_LINK_UNSUPPORTED_ERRORS: ReadonlySet<string> = new Set(['EPERM', 'EACCES', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])
+
+/** Whether a `link(2)` failure reports missing hard-link support. */
+function isHardLinkUnsupported(error: unknown): boolean {
+  return HARD_LINK_UNSUPPORTED_ERRORS.has((error as NodeJS.ErrnoException | null)?.code ?? '')
+}
+
+/**
+ * How {@link publishNoClobber} keeps the target name exclusive when the
+ * filesystem refuses hard links.
+ *
+ * - `writer-lock` holds {@link withFileLock} on `lockFile`, confirms the
+ *   target is absent, and renames the staged file onto it. Readers observe
+ *   either no file or the complete content. Exclusivity holds among
+ *   publishers of the target that name the same `lockFile`; a crash leaves
+ *   only the `<lockFile>.lock` sibling, which the next publisher takes over
+ *   once its recorded process has exited. `lockFile` must be a name whose
+ *   `.lock` sibling the caller owns: an unrelated file at that name would be
+ *   waited for, or removed when its content reads as an exited holder's PID.
+ * - `exclusive-reservation` claims the target name with an empty
+ *   exclusive-create (`wx`) file and renames the staged file over it.
+ *   Exclusivity holds against every creator, including programs that do not
+ *   use this function, but a reader can observe the empty reservation until
+ *   the rename, and a crash in that window leaves the empty file in place.
+ *   It suits a directory whose names the caller does not own.
+ */
+export type NoClobberFallback =
+  | { readonly kind: 'writer-lock'; readonly lockFile: string }
+  | { readonly kind: 'exclusive-reservation' }
+
+/** Options for one {@link publishNoClobber} call; both choices are required so each caller states them. */
+export interface PublishNoClobberOptions {
+  /** Exclusivity mechanism used when the filesystem refuses hard links. */
+  fallback: NoClobberFallback
+  /**
+   * Whether the source name must survive publication. `'consume'` lets the
+   * fallback rename the source itself; `'keep'` makes the fallback copy the
+   * source to a synced sibling of the target and rename that copy.
+   */
+  source: 'consume' | 'keep'
+  /** Hard-link primitive; defaults to `node:fs/promises` `link`. */
+  link?: (existingPath: string, newPath: string) => Promise<void>
+}
+
+/**
+ * How {@link publishNoClobber} published the target: `'hard-link'` leaves
+ * the source name in place; `'rename'` consumed the source when the options
+ * said `'consume'`.
+ */
+export type NoClobberPublication = 'hard-link' | 'rename'
+
+/** The `EEXIST` failure a hard link reports for an occupied target. */
+function targetExistsError(source: string, target: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`EEXIST: file already exists, link '${source}' -> '${target}'`), {
+    code: 'EEXIST',
+    errno: -osConstants.errno.EEXIST,
+    syscall: 'link',
+    path: source,
+    dest: target,
+  })
+}
+
+/** Rename `source` onto `target` while holding the writer lock of `lockFile`, failing with `EEXIST` when the target exists. */
+async function renameUnderWriterLock(source: string, target: string, lockFile: string, reported: string): Promise<void> {
+  await withFileLock(lockFile, async () => {
+    try {
+      await lstat(target)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      await rename(source, target)
+      return
+    }
+    throw targetExistsError(reported, target)
+  })
+}
+
+/** Claim `target` with an empty exclusive-create file, then rename `source` over the claim. */
+async function renameOverReservation(source: string, target: string): Promise<void> {
+  const reservation = await open(target, 'wx', 0o600)
+  let reserved
+  try {
+    reserved = await reservation.stat({ bigint: true })
+  } finally {
+    await reservation.close()
+  }
+  try {
+    await rename(source, target)
+  } catch (error) {
+    // Remove the reservation only while the target is still this call's empty inode.
+    try {
+      const current = await lstat(target, { bigint: true })
+      if (current.ino === reserved.ino && current.dev === reserved.dev) await rm(target, { force: true })
+    } catch (cleanupError) {
+      if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new AggregateError([error, cleanupError], `atomic-write: failed to release the reservation at ${target}`)
+      }
+    }
+    throw error
+  }
+}
+
+/** Copy `source` to a synced exclusive sibling of `target` so a rename can publish it without moving `source`. */
+async function stageCopy(source: string, target: string): Promise<string> {
+  const copy = `${target}.${randomBytes(6).toString('hex')}.tmp`
+  try {
+    await copyFile(source, copy, fsConstants.COPYFILE_EXCL)
+    const handle = await open(copy, 'r')
+    try {
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    await rm(copy, { force: true })
+    throw error
+  }
+  return copy
+}
+
+/**
+ * Publish the complete file at `source` under `target` without replacing an
+ * existing `target`. A hard link is attempted first, so filesystems that
+ * support one behave exactly as a bare `link(2)`. Only when the link fails
+ * with a code that can report missing hard-link support (`EPERM`, `EACCES`,
+ * `ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`) does the selected
+ * {@link NoClobberFallback} publish by rename. An occupied target fails with `EEXIST` on every path, any other
+ * link failure propagates unchanged, and a failed call leaves `source` in
+ * place. `source` must be complete and synced before the call, and sit on
+ * the same filesystem as `target`; the caller syncs the parent directory
+ * afterwards.
+ * @param source - complete staged file the caller owns.
+ * @param target - final name that must not exist yet.
+ * @param options - fallback mechanism and source ownership.
+ * @returns whether the target was published by hard link or by rename.
+ */
+export async function publishNoClobber(
+  source: string,
+  target: string,
+  options: PublishNoClobberOptions,
+): Promise<NoClobberPublication> {
+  try {
+    await (options.link ?? link)(source, target)
+    return 'hard-link'
+  } catch (error) {
+    if (!isHardLinkUnsupported(error)) throw error
+  }
+  const staged = options.source === 'keep' ? await stageCopy(source, target) : source
+  try {
+    const fallback = options.fallback
+    switch (fallback.kind) {
+      case 'writer-lock':
+        await renameUnderWriterLock(staged, target, fallback.lockFile, source)
+        break
+      case 'exclusive-reservation':
+        await renameOverReservation(staged, target)
+        break
+      /* v8 ignore next 4 -- closed-union exhaustiveness guard */
+      default: {
+        const unhandled: never = fallback
+        throw new Error(`atomic-write: unhandled no-clobber fallback ${JSON.stringify(unhandled)}`)
+      }
+    }
+  } catch (error) {
+    if (options.source === 'keep') await rm(staged, { force: true })
+    throw error
+  }
+  return 'rename'
 }

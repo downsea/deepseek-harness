@@ -823,7 +823,7 @@ describe('writeFileAtomic — temp-file safety', () => {
 
   it('maps a non-collision guarded-create publication failure and cleans staging', async () => {
     const file = join(dir, 'a.txt')
-    const denied = Object.assign(new Error('link denied'), { code: 'EACCES' })
+    const denied = Object.assign(new Error('link failed'), { code: 'EIO' })
 
     await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
       linkFile: async () => { throw denied },
@@ -880,6 +880,33 @@ describe('writeFileAtomic — temp-file safety', () => {
       message: `cannot write "${displayPath}": not a regular file`,
     })
     expect((await stat(file)).isDirectory()).toBe(true)
+  })
+
+  it('creates a guarded file on a filesystem that refuses hard links', async () => {
+    const file = join(dir, 'a.txt')
+    const unsupported = Object.assign(new Error('link not permitted'), { code: 'EPERM' })
+
+    await writeFileAtomic(file, 'ours', undefined, undefined, {
+      linkFile: async () => { throw unsupported },
+    }, { displayPath: file })
+    expect(await readFile(file, 'utf8')).toBe('ours')
+    expect(await readdir(dir)).toEqual(['a.txt'])
+  })
+
+  it('preserves a competitor when a filesystem without hard links reports the collision as EPERM', async () => {
+    const file = join(dir, 'a.txt')
+    const unsupported = Object.assign(new Error('link not permitted'), { code: 'EPERM' })
+
+    await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
+      inspectTemp: async () => { await writeFile(file, 'competitor') },
+      linkFile: async () => { throw unsupported },
+    }, { displayPath: file })).rejects.toMatchObject({
+      code: 'FS_NOT_OBSERVED',
+      message: `cannot overwrite existing "${file}" without reading it first`,
+      cause: { code: 'EEXIST' },
+    })
+    expect(await readFile(file, 'utf8')).toBe('competitor')
+    expect(await readdir(dir)).toEqual(['a.txt'])
   })
 
   it('does not turn post-commit staging cleanup failure into a failed guarded write', async () => {

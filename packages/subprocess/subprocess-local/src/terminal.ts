@@ -12,7 +12,7 @@ import type {
   SubprocessTerminalSignal,
 } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner } from './managed-owner.ts'
-import type { ProcessIdentity, ProcessInspector, ProcessSnapshot } from './process-inspector.ts'
+import { hasLinuxProcfs, type ProcessIdentity, type ProcessInspector, type ProcessSnapshot } from './process-inspector.ts'
 import type { ShellActivity } from './shell-activity.ts'
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -86,7 +86,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     private readonly terminal: IPty,
     private readonly inspector: ProcessInspector,
     private readonly graceMs: number,
-    private readonly platform: NodeJS.Platform = process.platform,
+    private readonly platform: string = process.platform,
     private readonly managedOwner?: BoundProcessOwner,
     private readonly resolveManagedOutcome?: (outcome: SubprocessOutcome) => SubprocessOutcome,
     private readonly shellActivity?: Pick<ShellActivity, 'inspect' | 'invalidate' | 'dispose'>,
@@ -175,7 +175,8 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
         const root = observed.tree(this.pid).find(member => member.pid === this.pid)
         if (this.exited && this.managedRangeEmpty) state = 'idle'
         else if (descendants.length > 0) state = 'busy'
-        else if (this.exited && this.managedOwner === undefined && this.platform === 'linux' && observed.complete === true && root === undefined) {
+        else if (this.exited && this.managedOwner === undefined && hasLinuxProcfs(this.platform)
+          && observed.complete === true && root === undefined) {
           state = observed.session(this.pid).some(member => observed.alive(member)) ? 'busy' : 'idle'
         }
         else if (observed.complete === true && root?.started === this.rootIdentity?.started && root !== undefined) {

@@ -11,6 +11,8 @@ import { chmod, link, lstat, mkdir, open, readFile, readdir, rename, rm, stat } 
 import type { BigIntStats, Dirent, Stats } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { TextDecoder, promisify } from 'node:util'
+import { homedir } from 'node:os'
+import { publishNoClobber } from '@deepseek-ai/dsh-atomic-write'
 import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import { copyFileDaclWin32, replaceFileWin32 } from './win32.ts'
 
@@ -91,7 +93,7 @@ export interface FsIoInternals {
   copyFileDacl?: (source: string, destination: string) => Promise<void>
   /** Override the Win32 security-preserving replacement boundary. */
   replaceFile?: (replaced: string, replacement: string) => Promise<void>
-  /** Override the hard-link no-replace publication boundary. */
+  /** Override the hard-link primitive of no-replace publication. */
   linkFile?: (existingPath: string, newPath: string) => Promise<void>
   /** Override target inspection after guarded publication fails. */
   inspectPublicationTarget?: (path: string) => Promise<BigIntStats>
@@ -134,6 +136,19 @@ export interface LocalDirEntry {
   target: LocalTarget
   version?: FsVersion
   size?: number
+}
+
+/**
+ * Replace a leading `~` with the host user's home directory in a caller-supplied path.
+ * `~/` is recognized on every platform and `~\` only on Windows; `~user` and later `~`
+ * segments stay literal. The rest of the spelling is kept so parent traversal still resolves physically.
+ * @param path - requested path from a model, plugin, or other caller; never a directory entry name.
+ * @returns the path with its home prefix replaced, or `path` unchanged.
+ */
+export function expandHomePrefix(path: string): string {
+  /* v8 ignore next -- Native Windows tests cover the `~\` prefix; POSIX keeps it literal. */
+  if (path === '~' || path.startsWith('~/') || (process.platform === 'win32' && path.startsWith('~\\'))) return `${homedir()}${path.slice(1)}`
+  return path
 }
 
 /**
@@ -581,9 +596,12 @@ async function throwGuardedCreateFailure(
  * inert as a mode on Windows but identifies replacement security semantics.
  * @param signal - cancellation checked before final publication.
  * @param internals - Test hook for pinning temp names and observing the staged file.
- * @param createIfAbsent - when provided, publish with a hard-link no-replace
- * primitive; a concurrent creator's file is preserved and this write is
- * rejected with `FS_NOT_OBSERVED` using the supplied display path.
+ * @param createIfAbsent - when provided, publish without replacing an existing
+ * target: a hard link, or on a filesystem without hard links an exclusive
+ * empty reservation of the target name that a rename then replaces (a reader
+ * can observe the empty file until the rename). A concurrent creator's file is
+ * preserved and this write is rejected with `FS_NOT_OBSERVED` using the
+ * supplied display path.
  */
 export async function writeFileAtomic(
   absolutePath: string,
@@ -632,7 +650,11 @@ export async function writeFileAtomic(
     throwIfAborted(signal, 'write')
     if (createIfAbsent !== undefined) {
       try {
-        await linkFile(tempPath, absolutePath)
+        await publishNoClobber(tempPath, absolutePath, {
+          fallback: { kind: 'exclusive-reservation' },
+          source: 'consume',
+          link: linkFile,
+        })
       } catch (error: unknown) {
         await throwGuardedCreateFailure(error, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget)
       }

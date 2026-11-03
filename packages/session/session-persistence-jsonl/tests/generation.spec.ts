@@ -1639,6 +1639,43 @@ describe('JSONL immutable generation publication', () => {
     expect(await readFile(request.currentPath, 'utf8')).toBe(line(header(SESSION_FORMAT_VERSION)) + line(event0))
   })
 
+  it('publishes by writer-locked rename on a filesystem that refuses hard links', async () => {
+    const root = await tempRoot()
+    const request = options(root)
+    await writeFile(request.sourcePath, line(header(0)) + line(event0))
+    const removed: string[] = []
+
+    await expect(ensureWithOverrides(request, {
+      platform: 'darwin',
+      fs: posixSimulationFs({
+        link: async () => { throw fsError('EPERM') },
+        rm: async (path: string) => {
+          removed.push(path)
+          await rm(path, { force: true })
+        },
+      }),
+    })).resolves.toMatchObject({ path: request.currentPath })
+
+    expect(await readFile(request.currentPath, 'utf8')).toBe(line(header(SESSION_FORMAT_VERSION)) + line(event0))
+    expect(removed.filter(path => path.includes('.tmp'))).toEqual([])
+    expect((await readdir(root)).sort()).toEqual(['session.jsonl', basename(request.currentPath)].sort())
+  })
+
+  it('accepts an identical target that wins the rename fallback', async () => {
+    const root = await tempRoot()
+    const request = options(root)
+    await writeFile(request.sourcePath, line(header(0)) + line(event0))
+    const linkFile = async (existingPath: string, newPath: string) => {
+      await link(existingPath, newPath)
+      throw fsError('EPERM')
+    }
+
+    await ensureWithOverrides(request, { platform: 'darwin', fs: posixSimulationFs({ link: linkFile }) })
+
+    expect(await readFile(request.currentPath, 'utf8')).toBe(line(header(SESSION_FORMAT_VERSION)) + line(event0))
+    expect((await readdir(root)).every(name => !name.includes('.tmp') && !name.endsWith('.lock'))).toBe(true)
+  })
+
   it('honors cancellation before reading a generation', async () => {
     const root = await tempRoot()
     const controller = new AbortController()

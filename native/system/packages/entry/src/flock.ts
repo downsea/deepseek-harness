@@ -11,8 +11,10 @@ let binding: FlockBinding | undefined
 
 function loadBinding(): FlockBinding {
   if (binding) return binding
-  const { platform, arch } = process
-  if (platform !== 'linux' && platform !== 'darwin') {
+  // Node builds for OpenHarmony report `openharmony`, which @types/node's Platform union omits.
+  const platform: string = process.platform
+  const { arch } = process
+  if (platform !== 'linux' && platform !== 'darwin' && platform !== 'openharmony') {
     throw Object.assign(new Error(`flock is not supported on ${platform}-${arch}`), {
       code: 'ERR_FLOCK_UNSUPPORTED_PLATFORM',
       syscall: 'flock',
