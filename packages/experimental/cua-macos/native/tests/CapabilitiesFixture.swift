@@ -3,10 +3,6 @@ import AppKit
 
 final class CapabilityPad: NSView {
     var received: ((NSEvent) -> Void)?
-    var pressed: (() -> Void)?
-    override func isAccessibilityElement() -> Bool { true }
-    override func accessibilityRole() -> NSAccessibility.Role? { .button }
-    override func accessibilityPerformPress() -> Bool { pressed?(); return true }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -45,7 +41,6 @@ final class CapabilitiesFixture: NSObject, NSApplicationDelegate, NSWindowDelega
     var pasteAttempts: [Bool] = []
     var pad: CapabilityPad!
     var events: [[String: Any]] = []
-    var axPresses = 0
     init(statePath: String) { self.statePath = statePath }
     func applicationDidFinishLaunching(_ notification: Notification) {
         let bar = NSMenu()
@@ -75,11 +70,10 @@ final class CapabilitiesFixture: NSObject, NSApplicationDelegate, NSWindowDelega
         text.attemptedPaste = { [weak self] owned in self?.pasteAttempts.append(owned); self?.persist() }
         window.contentView!.addSubview(text)
         pad = CapabilityPad(frame: NSRect(x: 20, y: 25, width: 600, height: 170))
-        pad.setAccessibilityTitle("Input receiver")
-        pad.pressed = { [weak self] in self?.axPresses += 1; self?.persist() }
+        pad.setAccessibilityLabel("Input receiver")
         pad.received = { [weak self] event in
             guard let self else { return }
-            var value: [String: Any] = ["type": event.type.rawValue, "timestamp": event.timestamp, "flags": event.modifierFlags.rawValue,
+            var value: [String: Any] = ["type": event.type.rawValue, "flags": event.modifierFlags.rawValue,
                                        "shift": event.modifierFlags.contains(.shift), "command": event.modifierFlags.contains(.command)]
             if [.keyDown, .keyUp].contains(event.type) { value["keyCode"] = event.keyCode; value["characters"] = event.characters ?? "" }
             else { value["button"] = event.buttonNumber }
@@ -87,13 +81,9 @@ final class CapabilitiesFixture: NSObject, NSApplicationDelegate, NSWindowDelega
             self.persist()
         }
         window.contentView!.addSubview(pad)
-        if Bundle.main.object(forInfoDictionaryKey: "DSHFixtureBackground") as? Bool == true || CommandLine.arguments.contains("--background") {
-            window.orderFront(nil)
-        } else {
-            window.makeKeyAndOrderFront(nil)
-            window.makeFirstResponder(text)
-            NSApplication.shared.activate(ignoringOtherApps: true)
-        }
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(text)
+        NSApplication.shared.activate(ignoringOtherApps: true)
         persist()
     }
     func applicationDidBecomeActive(_ notification: Notification) { persist() }
@@ -119,7 +109,7 @@ final class CapabilitiesFixture: NSObject, NSApplicationDelegate, NSWindowDelega
         let result: [String: Any] = ["pid": ProcessInfo.processInfo.processIdentifier, "windowId": window.windowNumber,
             "active": NSApplication.shared.isActive, "keyWindow": window.isKeyWindow,
             "textFocused": window.firstResponder === text, "pasteAttempts": pasteAttempts,
-            "text": text.string, "selection": [selection.location, selection.length], "runs": runs, "events": events, "axPresses": axPresses,
+            "text": text.string, "selection": [selection.location, selection.length], "runs": runs, "events": events,
             "pad": [frame.minX, window.frame.height - frame.maxY, frame.width, frame.height]]
         try! JSONSerialization.data(withJSONObject: result).write(to: URL(fileURLWithPath: statePath), options: .atomic)
     }

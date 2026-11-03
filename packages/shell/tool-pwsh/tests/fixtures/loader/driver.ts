@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 /**
  * Test driver: boot the tool-pwsh Loader composition, execute one real
  * foreground and one real background pwsh command through the tool registry,
@@ -20,7 +19,7 @@ try {
   if (schema === undefined) throw new Error('pwsh tool not registered by the composition')
   const prompt = (await ctx.systemPrompt.assemble()).sections.find(section => section.name === 'tool:pwsh')
 
-  const foreground = await executeToolFixture(ctx, {
+  const foreground = await ctx.tools.execute({
     signal: new AbortController().signal,
     callId: ToolCallId('loader-fg'),
     name: 'pwsh',
@@ -28,7 +27,7 @@ try {
   })
   const foregroundText = foreground.content.filter(block => block.type === 'text').map(block => block.text).join('')
 
-  const background = await executeToolFixture(ctx, {
+  const background = await ctx.tools.execute({
     signal: new AbortController().signal,
     callId: ToolCallId('loader-bg'),
     name: 'pwsh',
@@ -45,7 +44,7 @@ try {
   let backgroundText = ''
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
-    const read = await executeToolFixture(ctx, {
+    const read = await ctx.tools.execute({
       signal: new AbortController().signal,
       callId: ToolCallId('loader-bg-read'),
       name: 'job_output',

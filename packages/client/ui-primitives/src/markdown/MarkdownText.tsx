@@ -32,7 +32,6 @@ function renderSettled(
   labels: MarkdownLabels,
   fileMentions: MarkdownFileMentions | undefined,
   pathImages: MarkdownPathImages | undefined,
-  omitHtml: boolean,
 ): ReactNode[] {
   const root = parseGfmWithMath(text)
   const targets = createReferenceTargets()
@@ -42,7 +41,6 @@ function renderSettled(
     labels,
     fileMentions,
     pathImages,
-    omitHtml,
     targets,
     footnoteOrder: [],
     footnoteCounts: new Map(),
@@ -76,11 +74,8 @@ class StreamingRenderer {
   private lastText: string | null = null
   private lastRendered: ReactNode[] = []
 
-  /**
-   * @param labels - Localized Markdown chrome baked into cached elements; the owner replaces the renderer when it changes.
-   * @param omitHtml - Whether raw HTML renders nothing; the owner replaces the renderer when it changes.
-   */
-  constructor(private readonly labels: MarkdownLabels, readonly omitHtml: boolean) {}
+  /** @param labels - Localized Markdown chrome baked into cached elements; the owner replaces the renderer when it changes. */
+  constructor(private readonly labels: MarkdownLabels) {}
 
   /**
    * Render the current accumulated text. Idempotent per text value, so React
@@ -115,7 +110,6 @@ class StreamingRenderer {
         labels: this.labels,
         fileMentions: undefined,
         pathImages: undefined,
-        omitHtml: this.omitHtml,
         targets: frameTargets,
         footnoteOrder: this.frozenFootnoteOrder,
         footnoteCounts: this.frozenFootnoteCounts,
@@ -135,7 +129,6 @@ class StreamingRenderer {
       labels: this.labels,
       fileMentions: undefined,
       pathImages: undefined,
-      omitHtml: this.omitHtml,
       targets: frameTargets,
       footnoteOrder: [...this.frozenFootnoteOrder],
       footnoteCounts: new Map(this.frozenFootnoteCounts),
@@ -171,18 +164,15 @@ class StreamingRenderer {
  * `MarkdownDelegateProvider` can delegate ordinary HTTP(S) activation while
  * modified clicks retain native behavior. `variant="compact"` uses secondary
  * text sizing, uniform bold headings, and tight block spacing; the default
- * `body` variant uses the full document typography. `omitHtml` renders raw
- * HTML as nothing instead of literal text, for documents written for HTML
- * renderers, such as package READMEs. `textInteractionSource` marks the
- * existing root as a source for text selection interactions.
+ * `body` variant uses the full document typography.
  * The provider's `openFile` enables local Markdown links in settled messages,
  * including `#L24` and `#L24-L30` destinations (ranges open at their first line).
- * @returns A GFM document with TeX math rendered through KaTeX; raw HTML never
- * renders as markup, and unsafe protocols are disabled. Local links without an opener remain text;
+ * @returns A GFM document with TeX math rendered through KaTeX; raw HTML and
+ * unsafe protocols are disabled. Local links without an opener remain text;
  * absolute HTTP(S) images render directly.
  */
 export const MarkdownText = memo(function MarkdownText({
-  text, streaming = false, labels, fileMentions, pathImages, variant = 'body', omitHtml = false, textInteractionSource = false,
+  text, streaming = false, labels, fileMentions, pathImages, variant = 'body',
 }: {
   text: string
   streaming?: boolean
@@ -190,23 +180,20 @@ export const MarkdownText = memo(function MarkdownText({
   fileMentions?: MarkdownFileMentions | undefined
   pathImages?: MarkdownPathImages | undefined
   variant?: 'body' | 'compact'
-  omitHtml?: boolean
-  textInteractionSource?: boolean
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
   const streamLabelsRef = useRef<MarkdownLabels>(labels)
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null
-      return renderSettled(text, labels, fileMentions, pathImages, omitHtml)
+      return renderSettled(text, labels, fileMentions, pathImages)
     }
-    if (streamRef.current === null || streamLabelsRef.current !== labels || streamRef.current.omitHtml !== omitHtml) {
-      streamRef.current = new StreamingRenderer(labels, omitHtml)
+    if (streamRef.current === null || streamLabelsRef.current !== labels) {
+      streamRef.current = new StreamingRenderer(labels)
       streamLabelsRef.current = labels
     }
     return streamRef.current.render(text)
-  }, [text, streaming, labels, fileMentions, pathImages, omitHtml])
+  }, [text, streaming, labels, fileMentions, pathImages])
   return <div className={clsx(css.markdown, variant === 'compact' && css.compact)}
-    data-text-interaction-source={textInteractionSource ? '' : undefined}
     data-markdown-variant={variant === 'compact' ? variant : undefined}>{children}</div>
 })

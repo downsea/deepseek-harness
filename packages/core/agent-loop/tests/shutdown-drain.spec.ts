@@ -1,6 +1,5 @@
 /** Root-fiber shutdown drains buffered session events durably (both mount orders). */
 
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, it, afterEach } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -37,7 +36,6 @@ async function mount(order: 'backend-first' | 'loop-first'): Promise<{ ctx: Cont
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   if (order === 'backend-first') {
     await ctx.plugin(JsonlSessionPersistence, { root })

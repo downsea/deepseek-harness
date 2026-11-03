@@ -82,7 +82,7 @@ describe('ui-team browser plugin', () => {
       locale: 'agent-team',
     })
     const t = b.ctx.locale.bind('agent-team')
-    expect(t('trigger')).toBe('Agent team')
+    expect(t('trigger')).toBe('Agent Team')
 
     expect(b.navigation).toEqual([])
 

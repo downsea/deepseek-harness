@@ -36,7 +36,7 @@ Hazards and the per-release review inventory: [`scripts/openharmony/KNOWN-ISSUES
 
 ## 4. Release adaptation
 
-A Ticket about a new upstream `dsh-v*` tag: **load skill `hmos-release-adaptation`** ([SKILL.md](.agents/skills/hmos-release-adaptation/SKILL.md)) and follow it, from "issue for tag X" to "PR ready with evidence". Only the alpha line is adapted; rc tags are recorded, not merged.
+A Ticket about a new upstream `dsh-v*` tag: **load skill `hmos-release-adaptation`** ([SKILL.md](.agents/skills/hmos-release-adaptation/SKILL.md)) and follow it, from "issue for tag X" to "PR ready with evidence". The flow follows the latest upstream release — the newest `dsh-v*` tag by release date, including rc and final tags — not only the alpha line; a newest release that sits behind `master`'s line is reported, not back-merged.
 
 ## 5. Resources (this machine is shared, 9 GB RAM)
 

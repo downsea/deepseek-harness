@@ -65,18 +65,13 @@
   transition: opacity 0.2s ease-in-out;
 }
 
+.item:hover .remove,
 .remove:focus-visible {
   opacity: 1;
 }
 
-@media (hover: hover) {
-  .item:hover .remove {
-    opacity: 1;
-  }
-}
-
 /* Touch surfaces have no hover to reveal the control. */
-@media (hover: none), (pointer: coarse) {
+@media (pointer: coarse) {
   .remove {
     opacity: 1;
   }
@@ -107,10 +102,8 @@
   transform: translateY(-50%);
 }
 
-@media (hover: hover) {
-  .arrow:hover {
-    background: var(--dsw-alias-interactive-bg-hover-solid);
-  }
+.arrow:hover {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
 }
 
 .arrowLeft {

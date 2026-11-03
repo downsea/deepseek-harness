@@ -8,7 +8,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   SessionEventEntry,
-  SessionEventsPage,
+  SessionPage,
   SessionWireEvent,
 } from '../src/types.ts'
 
@@ -185,9 +185,8 @@ export function entries(events: readonly SessionEvent[]): SessionEventEntry[] {
 }
 
 /** Build one view-less history response value. */
-export function historyValue(events: readonly SessionEvent[], hasMore = false): SessionEventsPage {
+export function historyValue(events: readonly SessionEvent[], hasMore = false): SessionPage {
   return {
-    cursor: events.at(-1)?.seq ?? -1,
     records: entries(events),
     hasMore,
   }

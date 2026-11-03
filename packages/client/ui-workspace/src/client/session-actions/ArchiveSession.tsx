@@ -24,19 +24,16 @@ import css from '../rows/Rows.module.css'
 import browserCss from '../rows/WorkspaceBrowser.module.css'
 
 /**
- * Menu row (order 400): archive, or restore an archived row. Absent while the Session's access
- * snapshot excludes that toggle.
- * @param props - owner share, the archive share, the access Hook, and the menu open state.
- * @returns the row, or nothing when the caller may not toggle this Session's archival.
+ * Menu row (order 400): archive, or restore an archived row.
+ * @param props - owner share, the archive share, and the menu open state.
+ * @returns the row.
  */
 export function ArchiveSessionMenuItem({
-  sessionId, useArchived, useMenuOpenState, useShortcuts, useSessionAccess, archiveSession, unarchiveSession, t,
+  sessionId, useArchived, useMenuOpenState, useShortcuts, archiveSession, unarchiveSession, t,
 }: SessionMenuItemProps<ArchiveSessionInjected>) {
   const [, setMenuOpen] = useMenuOpenState()
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'session.archive'))
   const archived = useArchived(set => set.has(sessionId))
-  const allowed = useSessionAccess(sessionId, archived ? 'workspace/unarchiveSession' : 'workspace/archiveSession')
-  if (!allowed) return null
   return (
     <MenuItemButton
       shortcut={archived ? undefined : shortcut}
@@ -52,17 +49,14 @@ export function ArchiveSessionMenuItem({
 }
 
 /**
- * Hover button (order 100): archive, or restore an archived row. Absent while the Session's access
- * snapshot excludes that toggle.
- * @param props - owner share, the access Hook, and the archive share.
- * @returns the button, or nothing when the caller may not toggle this Session's archival.
+ * Hover button (order 100): archive, or restore an archived row.
+ * @param props - owner share and the archive share.
+ * @returns the button.
  */
 export function ArchiveSessionRowButton({
-  sessionId, useArchived, useSessionAccess, archiveSession, unarchiveSession, t,
+  sessionId, useArchived, archiveSession, unarchiveSession, t,
 }: SessionRowActionProps<ArchiveSessionInjected>) {
   const archived = useArchived(set => set.has(sessionId))
-  const allowed = useSessionAccess(sessionId, archived ? 'workspace/unarchiveSession' : 'workspace/archiveSession')
-  if (!allowed) return null
   return (
     <Tooltip label={t(archived ? 'actions.unarchive' : 'actions.archive')} side="bottom" align="end" delayMs={500} portal>
       <button

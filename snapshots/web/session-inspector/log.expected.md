@@ -1,4 +1,4 @@
-- table "Raw log":
+- table "Raw Log":
   - rowgroup:
     - row "Index Type Filter types T/S Time (UTC) Data":
       - columnheader "Index"

@@ -67,29 +67,6 @@ final class NativeSignals {
     deinit { sources.forEach { $0.cancel() } }
 }
 
-// Blocking accepts own only Sendable state; server access belongs to the MainActor callback.
-private func acceptConnections(listener: SharedSocket, lifetime: SharedHelperLifetime,
-                               onAccept: @escaping @MainActor @Sendable (UUID, SharedSocket, CancellationLatch) -> Void) {
-    while !lifetime.isStopping {
-        let descriptor = accept(listener.descriptor, nil, nil)
-        if descriptor < 0 && errno == EINTR { continue }
-        guard descriptor >= 0 else {
-            if !lifetime.isStopping { lifetime.abort(grace: lifetime.shutdownGrace) }
-            return
-        }
-        let channel = SharedSocket(descriptor: descriptor)
-        var uid: uid_t = 0
-        var gid: gid_t = 0
-        guard getpeereid(descriptor, &uid, &gid) == 0, uid == getuid() else { channel.shutdown(); continue }
-        let id = UUID()
-        let cancellation = CancellationLatch()
-        guard lifetime.add(id, channel: channel, cancellation: cancellation) else { channel.shutdown(); return }
-        Task { @MainActor [onAccept, id, channel, cancellation] in
-            onAccept(id, channel, cancellation)
-        }
-    }
-}
-
 @MainActor final class SharedHelperServer {
     private let options: SharedHelperOptions
     private let versionLock: SharedHelperLock
@@ -98,7 +75,6 @@ private func acceptConnections(listener: SharedSocket, lifetime: SharedHelperLif
     private let lifetime: SharedHelperLifetime
     private let scheduler = RequestScheduler()
     private let capture = WindowCapture()
-    private let permissions = SystemPermissions()
     private let instanceID = UUID().uuidString
     private var connections: [UUID: RequestCoordinator] = [:]
     private var startupDeadline: NativeDeadline?
@@ -123,18 +99,12 @@ private func acceptConnections(listener: SharedSocket, lifetime: SharedHelperLif
 
     func start() throws {
         let lifetime = self.lifetime
-        let onStop: @MainActor @Sendable () -> Void = { [weak self] in
-            guard let self else { return }
-            self.closeConnections()
-            self.exitIfEmpty()
-        }
-        signals = NativeSignals { [lifetime, onStop] number in
+        signals = NativeSignals { [weak self] number in
             lifetime.abort(grace: lifetime.shutdownGrace, status: 128 + number)
-            Task { @MainActor [onStop] in onStop() }
+            Task { @MainActor in self?.closeConnections(); self?.exitIfEmpty() }
         }
-        let onIdle: @MainActor @Sendable () -> Void = { [weak self] in self?.exitIfEmpty() }
-        startupDeadline = NativeDeadline(seconds: options.startupTimeout) { [onIdle] in
-            Task { @MainActor [onIdle] in onIdle() }
+        startupDeadline = NativeDeadline(seconds: options.startupTimeout) { [weak self] in
+            Task { @MainActor in self?.exitIfEmpty() }
         }
         let ready = options.ready(pid: getpid(), instanceID: instanceID)
         let data = try JSONEncoder().encode(ready)
@@ -143,45 +113,38 @@ private func acceptConnections(listener: SharedSocket, lifetime: SharedHelperLif
         try FileHandle.standardOutput.write(contentsOf: data + Data([10]))
         try FileHandle.standardOutput.close()
         let listener = self.listener
-        let onAccept: @MainActor @Sendable (UUID, SharedSocket, CancellationLatch) -> Void = { [weak self] id, channel, cancellation in
-            guard let self else {
-                channel.shutdown()
-                lifetime.remove(id)
-                return
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            while !lifetime.isStopping {
+                let descriptor = accept(listener.descriptor, nil, nil)
+                if descriptor < 0 && errno == EINTR { continue }
+                guard descriptor >= 0 else {
+                    if !lifetime.isStopping { lifetime.abort(grace: lifetime.shutdownGrace) }
+                    return
+                }
+                let channel = SharedSocket(descriptor: descriptor)
+                var uid: uid_t = 0
+                var gid: gid_t = 0
+                guard getpeereid(descriptor, &uid, &gid) == 0, uid == getuid() else { channel.shutdown(); continue }
+                let id = UUID()
+                let cancellation = CancellationLatch()
+                guard lifetime.add(id, channel: channel, cancellation: cancellation) else { channel.shutdown(); return }
+                Task { @MainActor in self?.admit(id, channel: channel, cancellation: cancellation) }
             }
-            self.admit(id, channel: channel, cancellation: cancellation)
-        }
-        DispatchQueue.global(qos: .utility).async { [listener, lifetime, onAccept] in
-            acceptConnections(listener: listener, lifetime: lifetime, onAccept: onAccept)
         }
     }
 
     private func admit(_ id: UUID, channel: SharedSocket, cancellation: CancellationLatch) {
-        guard !lifetime.isStopping else { channel.shutdown(); disconnected(id); return }
         let options = self.options
-        let lifetime = self.lifetime
-        let onHello: @MainActor @Sendable (HelperConfiguration) async -> Void = { [weak self] configuration in
-            guard let self else {
-                channel.shutdown()
-                lifetime.remove(id)
-                return
-            }
-            await self.connected(id, channel: channel, cancellation: cancellation, configuration: configuration)
-        }
-        let onFailure: @MainActor @Sendable () -> Void = { [weak self] in
-            lifetime.remove(id)
-            self?.exitIfEmpty()
-        }
-        DispatchQueue.global(qos: .utility).async { [options, channel, onHello, onFailure] in
+        DispatchQueue.global(qos: .utility).async { [weak self] in
             do {
                 let configuration = try HelperConfiguration(hello: channel.readHello(timeout: options.startupTimeout), runtimeKey: options.runtimeKey)
-                Task { @MainActor [onHello, configuration] in await onHello(configuration) }
+                Task { @MainActor in await self?.connected(id, channel: channel, cancellation: cancellation, configuration: configuration) }
             } catch {
                 let failure = error as? NativeFailure ?? NativeFailure(code: "NATIVE_PROTOCOL", message: "Invalid shared helper hello")
                 let response = JSONValue.object(["type": .string("error"), "code": .string(failure.code), "message": .string(failure.message)])
                 if let data = try? JSONEncoder().encode(response) { try? channel.write(data + Data([10]), timeout: options.startupTimeout) }
                 channel.shutdown()
-                Task { @MainActor [onFailure] in onFailure() }
+                Task { @MainActor in self?.disconnected(id) }
             }
         }
     }
@@ -192,18 +155,14 @@ private func acceptConnections(listener: SharedSocket, lifetime: SharedHelperLif
         let writer = JSONLWriter(limit: configuration.maxResponseBytes, channel: channel, writeTimeout: configuration.shutdownGraceSeconds)
         do { try await writer.write(options.ready(pid: getpid(), instanceID: instanceID)) }
         catch { channel.shutdown(); disconnected(id); return }
-        // Signal shutdown can run while the ready frame is being written.
-        guard !lifetime.isStopping else { channel.shutdown(); disconnected(id); return }
         let lifetime = self.lifetime
-        let onFatal: @MainActor @Sendable () -> Void = { [weak self] in self?.closeConnections() }
         let coordinator = RequestCoordinator(configuration: configuration, capture: capture, channel: channel, cancellation: cancellation,
-            scheduler: scheduler, writer: writer, permissions: permissions, onClose: { [weak self] in
+            scheduler: scheduler, writer: writer, onClose: { [weak self] in
                 channel.shutdown()
-                guard let self else { lifetime.remove(id); return }
-                self.disconnected(id)
-            }, onFatal: { [lifetime, onFatal] _, grace in
+                self?.disconnected(id)
+            }, onFatal: { [weak self] _, grace in
                 lifetime.abort(grace: grace)
-                Task { @MainActor [onFatal] in onFatal() }
+                Task { @MainActor in self?.closeConnections() }
             })
         connections[id] = coordinator
         startupDeadline?.cancel()

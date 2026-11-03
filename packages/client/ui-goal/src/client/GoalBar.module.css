@@ -119,11 +119,9 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .iconBtn:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-    color: var(--dsw-alias-label-secondary);
-  }
+.iconBtn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .iconBtn:disabled {

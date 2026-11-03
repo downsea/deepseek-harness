@@ -30,7 +30,7 @@
   "events": [
     {
       "type": "request/header",
-      "seq": 12,
+      "seq": 11,
       "time": 0,
       "data": {
         "header": {
@@ -45,9 +45,9 @@
             "maxTokens": true
           },
           "tools": [
-            "ask_user_question",
             "create_goal",
             "edit",
+            "exit_plan_mode",
             "get_goal",
             "glob",
             "grep",
@@ -56,13 +56,8 @@
             "job_list",
             "job_output",
             "list_agents",
-            "present",
             "read",
             "read_image",
-            "schedule_create",
-            "schedule_delete",
-            "schedule_list",
-            "schedule_update",
             "send_message",
             "skill",
             "subagent",
@@ -81,7 +76,7 @@
     },
     {
       "type": "request/context",
-      "seq": 13,
+      "seq": 12,
       "time": 0,
       "data": {
         "provider": "deepseek-official",
@@ -91,7 +86,7 @@
     },
     {
       "type": "request/header",
-      "seq": 20,
+      "seq": 19,
       "time": 0,
       "data": {
         "header": {
@@ -106,9 +101,9 @@
             "maxTokens": true
           },
           "tools": [
-            "ask_user_question",
             "create_goal",
             "edit",
+            "exit_plan_mode",
             "get_goal",
             "glob",
             "grep",
@@ -117,13 +112,8 @@
             "job_list",
             "job_output",
             "list_agents",
-            "present",
             "read",
             "read_image",
-            "schedule_create",
-            "schedule_delete",
-            "schedule_list",
-            "schedule_update",
             "send_message",
             "skill",
             "snapshot_ping",
@@ -143,7 +133,7 @@
     },
     {
       "type": "developer/message",
-      "seq": 21,
+      "seq": 20,
       "time": 0,
       "data": {
         "turn": 1,
@@ -167,7 +157,7 @@
     },
     {
       "type": "request/header",
-      "seq": 27,
+      "seq": 26,
       "time": 0,
       "data": {
         "header": {
@@ -182,9 +172,9 @@
             "maxTokens": true
           },
           "tools": [
-            "ask_user_question",
             "create_goal",
             "edit",
+            "exit_plan_mode",
             "get_goal",
             "glob",
             "grep",
@@ -193,13 +183,8 @@
             "job_list",
             "job_output",
             "list_agents",
-            "present",
             "read",
             "read_image",
-            "schedule_create",
-            "schedule_delete",
-            "schedule_list",
-            "schedule_update",
             "send_message",
             "skill",
             "subagent",
@@ -218,7 +203,7 @@
     },
     {
       "type": "developer/message",
-      "seq": 28,
+      "seq": 27,
       "time": 0,
       "data": {
         "turn": 1,

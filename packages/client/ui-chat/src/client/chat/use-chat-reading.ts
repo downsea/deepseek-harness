@@ -89,12 +89,11 @@ export class ChatReading {
 
   /**
    * Follow the tail on the active fold's animation clock.
-   * @param input - whether the reader's own input requests the landing rather than a content change.
    * @returns whether a fold batch owns the tail movement instead of a separate scroll animation.
    */
-  followInputFold(input: boolean): boolean {
+  followInputFold(): boolean {
     this.cancelPending()
-    return this.viewport.followInputFold(this.follow, input)
+    return this.viewport.followInputFold(this.follow)
   }
 
   /**

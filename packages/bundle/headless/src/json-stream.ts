@@ -37,8 +37,8 @@ export interface JsonProjectionOptions {
 
 /** The live handle of one `--json` projection. */
 export interface JsonProjection {
-  /** Write the answer and durable turn reason; omission reports no terminal turn. */
-  finish(text: string, reason?: SessionEvent<'turn/end'>['data']['reason']): void
+  /** Write the terminal `final` event carrying the run's answer text. */
+  finish(text: string): void
   /** Stop observing the Session. */
   dispose(): void
 }
@@ -232,9 +232,8 @@ function addUsage(state: StepUsageState, next: StepUsage | undefined): StepUsage
  * The opening `session` event is written before the subscription starts, so a
  * caller must invoke this before submitting the task. Text and reasoning are
  * emitted only when the step's `assistant/message` commits them, and the
- * terminal `final` event carries the exact Session identity, the durable turn
- * reason (null without a terminal turn), and the lossless answer. It is not bounded.
- * Tool results include any durable structured error under the ordinary output bounds.
+ * terminal `final` event carries the same lossless answer the default mode
+ * prints (it is deliberately not bounded).
  * @param ctx - plugin context carrying the live Session feed.
  * @param agent - the exact Agent whose events belong to this invocation.
  * @param sink - stdout sink receiving one JSON object per line.
@@ -308,7 +307,6 @@ export function projectJsonRun(
           callId: message.toolCallId,
           status: message.isError === true ? 'error' : 'completed',
           result: resultText(message.content),
-          ...event.data.error === undefined ? {} : { error: event.data.error },
         })
         return
       }
@@ -321,10 +319,10 @@ export function projectJsonRun(
   const stopSession = ctx.on('session/event', onSessionEvent)
 
   return {
-    finish(text: string, reason?: SessionEvent<'turn/end'>['data']['reason']): void {
+    finish(text: string): void {
       // The answer is the lossless terminal contract, so it is not truncated.
       if (disposed) return
-      sink.write(`${JSON.stringify({ type: 'final', sessionId: agent.id, reason: reason ?? null, text })}\n`)
+      sink.write(`${JSON.stringify({ type: 'final', text })}\n`)
     },
     dispose(): void {
       disposed = true

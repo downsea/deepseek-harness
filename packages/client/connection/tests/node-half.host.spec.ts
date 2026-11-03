@@ -22,9 +22,6 @@ import {
 import { DEFAULT_MAX_REQUEST_BODY_BYTES } from '../src/http-bridge.ts'
 import { provideBrowserCredentials } from './browser-credentials.ts'
 
-/** The Peer an index render speaks for; this listener reads no field of it. */
-const PAGE_PEER = { principal: { kind: 'owner' } } as Parameters<WebServer['renderIndex']>[1]
-
 /** Structural webServer fake recording both route registries. */
 function fakeHttpServer(
   routes: WebRoute[],
@@ -35,7 +32,7 @@ function fakeHttpServer(
   return {
     host,
     protocol,
-    register(route: WebRoute) {
+    register(route) {
       if (routes.some(candidate => candidate.kind === route.kind && candidate.path === route.path)) {
         throw new Error(`duplicate route ${route.path}`)
       }
@@ -275,7 +272,7 @@ describe('connection node half', () => {
     const { ctx, dispose } = await mounted({ recovery: { generationReadyTimeoutMs: 25_000 } })
     try {
       const rows: IndexInjection[] = []
-      ctx.emit('webserver/index-inject', rows, PAGE_PEER)
+      ctx.emit('webserver/index-inject', rows)
       expect(rows).toEqual([{
         kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: {
           backoffBaseMs: 500, backoffFactor: 2, backoffMaxMs: 10_000,
@@ -284,7 +281,7 @@ describe('connection node half', () => {
       }])
       await dispose()
       const after: IndexInjection[] = []
-      ctx.emit('webserver/index-inject', after, PAGE_PEER)
+      ctx.emit('webserver/index-inject', after)
       expect(after).toEqual([])
     } finally {
       await dispose()

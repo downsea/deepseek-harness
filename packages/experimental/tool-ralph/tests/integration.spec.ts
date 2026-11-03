@@ -1,4 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -100,7 +99,7 @@ describe('dsh-tool-ralph over the real spawn and sandboxed PTC stack', () => {
       expect(agent).toBeDefined()
       children.push(agent!)
     })
-    const result = await executeToolFixture(ctx, {
+    const result = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('ralph-integration'),
       name: 'ralph',
@@ -147,10 +146,13 @@ describe('dsh-tool-ralph over the real spawn and sandboxed PTC stack', () => {
       toolCallResponse('round-1', STRUCTURED_OUTPUT_TOOL, firstReport),
       maxTokensResponse('unfinished child output'),
     ], { maxRounds: 2 })
-    const childIds: SessionId[] = []
-    ctx.on('workflow/agent-start', (_run, child) => { childIds.push(child.childId) })
+    const children: Agent[] = []
+    ctx.on('workflow/agent-start', (_run, child) => {
+      const agent = ctx.agents.get(child.childId)
+      if (agent !== undefined) children.push(agent)
+    })
 
-    const result = await executeToolFixture(ctx, {
+    const result = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('ralph-child-failure'),
       name: 'ralph',
@@ -163,8 +165,8 @@ describe('dsh-tool-ralph over the real spawn and sandboxed PTC stack', () => {
     expect(text).toContain('Ralph round 2 child failed before producing a structured report.')
     expect(text).toContain('Last successful handoff:')
     expect(text).toContain('ROUND_ONE_HANDOFF')
-    expect(childIds).toHaveLength(2)
-    for (const childId of childIds) expect(ctx.agents.get(childId)).toBeUndefined()
+    expect(children).toHaveLength(2)
+    for (const child of children) expect(ctx.agents.get(child.id)).toBeUndefined()
     await parentHandle.dispose()
   })
 
@@ -239,7 +241,7 @@ describe('dsh-tool-ralph over the real spawn and sandboxed PTC stack', () => {
       toolCallResponse('round-report', STRUCTURED_OUTPUT_TOOL, report),
     ], config)
 
-    const result = await executeToolFixture(ctx, {
+    const result = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('ralph-script-enforcement'),
       name: 'ralph',
@@ -267,7 +269,7 @@ describe('dsh-tool-ralph over the real spawn and sandboxed PTC stack', () => {
     })
     ctx.on('workflow/agent-end', (_run, child) => { outcomes.push(child.outcome) })
     const controller = new AbortController()
-    const pending = executeToolFixture(ctx, {
+    const pending = ctx.tools.execute({
       callId: ToolCallId('ralph-real-cancel'),
       name: 'ralph',
       arguments: { objective: 'Keep working until cancelled.', maxRounds: 2 },

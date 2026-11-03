@@ -28,9 +28,6 @@
       "path": "../../guard/timeout-policy"
     },
     {
-      "path": "../../util/output-retention"
-    },
-    {
       "path": "../web"
     }
   ]

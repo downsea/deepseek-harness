@@ -101,10 +101,8 @@
   text-align: left;
 }
 
-@media (hover: hover) {
-  .expand:hover {
-    color: var(--dsw-alias-label-secondary);
-  }
+.expand:hover {
+  color: var(--dsw-alias-label-secondary);
 }
 
 .empty {

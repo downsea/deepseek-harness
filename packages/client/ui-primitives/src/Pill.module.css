@@ -17,10 +17,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .interactive:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.interactive:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .active {

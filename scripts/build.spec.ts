@@ -7,8 +7,7 @@ const root = resolve(import.meta.dirname, '..')
 
 const artifactGraph = {
   'native': [],
-  'host-typert': [],
-  'host-src': ['native', 'host-typert'],
+  'host-src': ['native'],
   'host-bundle': ['host-src'],
   'desktop-bundle': ['host-bundle'],
   'client-src': ['desktop-bundle'],
@@ -43,10 +42,10 @@ describe('repository build CLI', () => {
   })
 
   it('selects the complete build by default and one step set by scope', () => {
-    expect(parseBuildArguments([])).toEqual({ scope: 'complete', profile: undefined, serial: false })
-    expect(parseBuildArguments(['--scope', 'artifacts', '--profile', 'official'])).toEqual({ scope: 'artifacts', profile: 'official', serial: false })
-    expect(parseBuildArguments(['--scope', 'check'])).toEqual({ scope: 'check', profile: undefined, serial: false })
-    expect(parseBuildArguments(['--scope', 'typecheck'])).toEqual({ scope: 'typecheck', profile: undefined, serial: false })
+    expect(parseBuildArguments([])).toEqual({ scope: 'complete', profile: undefined })
+    expect(parseBuildArguments(['--scope', 'artifacts', '--profile', 'official'])).toEqual({ scope: 'artifacts', profile: 'official' })
+    expect(parseBuildArguments(['--scope', 'check'])).toEqual({ scope: 'check', profile: undefined })
+    expect(parseBuildArguments(['--scope', 'typecheck'])).toEqual({ scope: 'typecheck', profile: undefined })
   })
 
   it.each([
@@ -60,32 +59,7 @@ describe('repository build CLI', () => {
 })
 
 describe('repository build steps', () => {
-  it('parses the explicit serial build option', () => {
-    expect(parseBuildArguments(['--profile', 'official', '--serial'])).toEqual({ scope: 'complete', profile: 'official', serial: true })
-  })
-
-  it.each(['complete', 'artifacts', 'check', 'typecheck'] as const)('chains every %s step when serial execution is selected', (scope) => {
-    const original = buildGates(root, scope)
-    const serial = buildGates(root, scope, {}, true)
-    expect(serial.map(gate => gate.id)).toEqual(original.map(gate => gate.id))
-    for (const [index, gate] of serial.entries()) {
-      const previous = serial[index - 1]
-      if (previous !== undefined) expect(gate.needs).toContain(previous.id)
-      for (const dependency of original[index]!.needs ?? []) expect(gate.needs).toContain(dependency)
-    }
-  })
-
-  it.each(['complete', 'check', 'typecheck'] as const)('gives Host compilers and both aggregate checks an 8 GiB heap in %s scope', (scope) => {
-    const gates = buildGates(root, scope)
-    for (const gate of gates.filter(gate => gate.id === 'host-src' || gate.id === 'host-check' || gate.id === 'client-check')) {
-      expect(gate.args[0]).toBe('--max-old-space-size=8192')
-    }
-    for (const gate of gates.filter(gate => gate.id === 'client-src')) {
-      expect(gate.args.some(arg => arg.startsWith('--max-old-space-size'))).toBe(false)
-    }
-  })
-
-  it('finishes Host and Desktop readers before Client compilation rewrites shared outputs', () => {
+  it('keeps artifact steps in serial dependency order', () => {
     expect(graph(buildGates(root, 'artifacts'))).toEqual(artifactGraph)
   })
 
@@ -106,12 +80,12 @@ describe('repository build steps', () => {
     })
   })
 
-  it('type-checks every program after source-only Typert generation', () => {
+  it('type-checks every program with the source-only Typert pass beside Host compilation', () => {
     const gates = buildGates(root, 'typecheck')
     expect(graph(gates)).toEqual({
+      'host-src': [],
       'host-typert': [],
-      'host-src': ['host-typert'],
-      'client-src': ['host-src'],
+      'client-src': ['host-src', 'host-typert'],
       'host-check': ['host-src'],
       'client-check': ['client-src'],
     })

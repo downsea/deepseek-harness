@@ -17,7 +17,6 @@
  */
 
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import { escalationDisplayReason } from './locales.ts'
 import type { SandboxMode } from './index.ts'
 
 /**
@@ -191,7 +190,10 @@ export async function approveEscalation<A, C>(request: EscalationRequest, approv
     toolName: approval.toolName,
     callId: approval.callId,
     reason: `escalate sandbox to ${mode}: ${justification}`,
-    displayReason: escalationDisplayReason(mode, justification),
+    displayReason: {
+      en: `Allow this operation with ${mode} permissions: ${justification}`,
+      zh: `允许本次操作使用 ${mode} 权限：${justification}`,
+    },
     ...approval.signal ? { signal: approval.signal } : {},
   })
   switch (outcome) {

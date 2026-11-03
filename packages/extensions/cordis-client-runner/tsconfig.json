@@ -15,9 +15,6 @@
       "path": "../../../vendor/loader"
     },
     {
-      "path": "../../../vendor/timer"
-    },
-    {
       "path": "../../api/remotes/tsconfig.client.json"
     },
     {

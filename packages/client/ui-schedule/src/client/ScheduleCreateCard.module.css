@@ -24,10 +24,8 @@
 }
 
 /* Only a card whose whole row opens the task answers hover. */
-@media (hover: hover) {
-  .card:has(.cardOpen):hover {
-    background: var(--card-hover);
-  }
+.card:has(.cardOpen):hover {
+  background: var(--card-hover);
 }
 
 .cardOpen {

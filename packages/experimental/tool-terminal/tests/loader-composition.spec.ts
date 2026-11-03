@@ -1,7 +1,5 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { unsupportedModel, provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -45,8 +43,7 @@ async function agent(ctx: Context): Promise<Agent> {
   const id = SessionId('pty-loader-agent')
   const session = Session.create(id)
   const value: Agent = {
-    id, options: {}, session, model: unsupportedModel(),
-    inbox: unsupportedInbox(),
+    id, options: {}, session, inbox: unsupportedInbox(),
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},
@@ -72,7 +69,6 @@ suite('terminal real Loader composition through cordis.yml', () => {
       "- name: '@deepseek-ai/dsh-agent'",
       "- name: '@deepseek-ai/dsh-system-prompt'",
       "- name: '@deepseek-ai/dsh-tools'",
-      "- name: '@deepseek-ai/dsh-tool-executor-native'",
       "- name: '@deepseek-ai/dsh-terminal'",
       "- name: '@deepseek-ai/dsh-test-sandbox'",
       "- name: '@deepseek-ai/dsh-session-projection'",
@@ -103,7 +99,6 @@ suite('terminal real Loader composition through cordis.yml', () => {
       ['@deepseek-ai/dsh-agent', AgentRegistry],
       ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
       ['@deepseek-ai/dsh-tools', ToolRuntime],
-      ['@deepseek-ai/dsh-tool-executor-native', NativeToolExecutor],
       ['@deepseek-ai/dsh-terminal', TerminalSessionService],
       ['@deepseek-ai/dsh-test-sandbox', PassthroughSandbox],
       ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
@@ -124,15 +119,15 @@ suite('terminal real Loader composition through cordis.yml', () => {
 
     const owner = await agent(context)
     const signal = new AbortController().signal
-    const spawn = await executeToolFixture(context, {
+    const spawn = await context.tools.execute({
       signal, callId: ToolCallId('spawn'), name: 'terminal_open', arguments: { type: 'shell', name: 'main', cwd: root }, agent: owner,
     })
     expect(resultText(spawn)).toContain('started terminal session pty-1 (main)')
 
-    await executeToolFixture(context, {
+    await context.tools.execute({
       signal, callId: ToolCallId('state'), name: 'terminal_send', arguments: { sessionId: 'pty-1', text: 'export KEEP=loader; cd /' }, agent: owner,
     })
-    const read = await executeToolFixture(context, {
+    const read = await context.tools.execute({
       signal, callId: ToolCallId('read'), name: 'terminal_send', arguments: { sessionId: 'pty-1', text: 'printf "cwd=%s keep=%s\\n" "$PWD" "$KEEP"' }, agent: owner,
     })
     expect(resultText(read)).toContain('cwd=/ keep=loader')

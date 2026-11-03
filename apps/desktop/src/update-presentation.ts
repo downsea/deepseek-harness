@@ -33,7 +33,6 @@ export function desktopUpdateErrorSummary(state: DesktopUpdateState, messages: D
     'stop-failed': messages.updateStopFailed,
     'tasks-changed': messages.updateTasksChanged,
     'tasks-unavailable': messages.updateTasksUnavailable,
-    'fullscreen-timeout': messages.updateFullscreenTimeout,
   }
   return summaries[kind]
 }

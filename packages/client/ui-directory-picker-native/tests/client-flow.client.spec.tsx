@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { StaticRemoteAccess } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { NativeDirectoryFlow } from '../src/client/flow.ts'
@@ -30,10 +29,9 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); deskto
 
 const HOLES = ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'] as const
 
-async function bench(allows: (action: string) => boolean = () => true) {
+async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
-  new StaticRemoteAccess(ctx, allows)
   const pickDirectory = vi.fn(async (): Promise<string | null> => '/tmp/picked')
   ctx.provide('uiWorkspace', { pickDirectory } as never)
   const slots = ctx.get('slots') as SlotRegistry
@@ -54,19 +52,7 @@ function owner(overrides: Partial<DirectoryFlowOwnerProps> = {}): DirectoryFlowO
 
 describe('directory-picker-native client half', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'uiWorkspace', 'remoteAccess'])
-  })
-
-  it('fills no directory flow while the current Peer may not open the Host chooser', async () => {
-    const allows = vi.fn(() => false)
-    const b = await bench(allows)
-    b.declare()
-    const fiber = b.ctx.plugin({ inject: [...inject], apply })
-    await fiber.await()
-    expect(allows).toHaveBeenCalledWith('directoryPicker/pick')
-    for (const hole of HOLES) expect(b.slots.entries(hole)).toEqual([])
-    await fiber.dispose()
-    await b.ctx.fiber.dispose()
+    expect(inject).toEqual(['slots', 'uiWorkspace'])
   })
 
   it('fills both directory-flow holes for declarations before or after apply, and leaves with its fiber', async () => {

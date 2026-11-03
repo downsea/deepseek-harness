@@ -351,12 +351,6 @@ export interface ClientBundleRequire {
   (specifier: string): unknown
   /** Load and resolve a package-local dynamic chunk asynchronously. */
   async(specifier: string): Promise<unknown>
-  /**
-   * Resolve a package-asset reference (`plugins/<package>/assets/<path>`) the
-   * build compiled from an asset import or stylesheet `url()` to the URL the
-   * page loads; the reference itself unless the carrier maps it.
-   */
-  asset(reference: string): string
 }
 
 /** One client bundle's factory registration submitted through `window.__ModuleLoader__.load`. */
@@ -381,8 +375,6 @@ export interface ClientModuleCreateOptions {
   staticModules: Record<string, unknown>
   /** Bundle-load hook. Defaults to a same-origin classic `<script src>` element. */
   loadBundle?: (url: string) => Promise<void>
-  /** Package-asset reference hook behind {@link ClientBundleRequire.asset}. Defaults to returning the reference. */
-  resolveAsset?: (reference: string) => string
 }
 
 /** The modules bundle after its factory has been materialized by the HTML bootstrap facade. */
@@ -493,6 +485,4 @@ export interface ClientModuleSystemOptions {
   bootstrapModule: ClientBootstrapModule
   /** Bundle-load hook. Defaults to a same-origin classic `<script src>` element. */
   loadBundle?: (url: string) => Promise<void>
-  /** Package-asset reference hook behind {@link ClientBundleRequire.asset}. Defaults to returning the reference. */
-  resolveAsset?: (reference: string) => string
 }

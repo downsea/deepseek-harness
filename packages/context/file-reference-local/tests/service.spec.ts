@@ -1,4 +1,3 @@
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,8 +10,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { FILE_REFERENCE_PROMPT } from '@deepseek-ai/dsh-file-reference'
 import LocalFileReferenceService, { WorkspaceFileSearch } from '../src/index.ts'
 
@@ -28,10 +26,9 @@ async function harness(): Promise<Context> {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   await ctx.plugin(ToolRegistry)
-  await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalFileSystem)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(WorkingDirectory)
   return ctx
 }
@@ -67,7 +64,6 @@ describe('LocalFileReferenceService', () => {
   it('defers guidance until optional prompt and tool services become available', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     ctx.provide('workingDirectory', { ensure: vi.fn<WorkingDirectory['ensure']>() })
     await ctx.plugin(LocalFileReferenceService)
@@ -77,7 +73,6 @@ describe('LocalFileReferenceService', () => {
       expect(ctx.agents.get(agent.id)).toBe(agent)
       await ctx.plugin(SystemPrompt, { personaPrefix: '' })
       await ctx.plugin(ToolRegistry)
-      await ctx.plugin(NativeToolExecutor)
       ctx.tools.register(defineContentToolFixture({
         name: 'read', description: 'read a file', parameters: {}, execute: () => Promise.resolve([]),
       }))

@@ -17,12 +17,9 @@ import {
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
 import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
-import type { IndexInjection, WebServer } from '@deepseek-ai/dsh-host-webserver'
+import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
 import * as hostPlugin from '../src/index.ts'
 import { ONBOARDING_CONFIG_GLOBAL } from '../src/onboarding-config.ts'
-
-/** The Peer an index render speaks for; this listener reads no field of it. */
-const PAGE_PEER = { principal: { kind: 'owner' } } as Parameters<WebServer['renderIndex']>[1]
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -77,7 +74,7 @@ describe('ui-settings-models apply', () => {
       const host = ctx.plugin(hostPlugin, { credentialOnboarding: false })
       await host.await()
       const rows: IndexInjection[] = []
-      ctx.emit('webserver/index-inject', rows, PAGE_PEER)
+      ctx.emit('webserver/index-inject', rows)
       expect(rows).toEqual([{ kind: 'global', name: ONBOARDING_CONFIG_GLOBAL, value: { credentialOnboarding: false } }])
       for (const row of rows) if (row.kind === 'global') vi.stubGlobal(row.name, row.value)
       const plugin = ctx.plugin({ inject: [...inject], apply })
@@ -90,7 +87,7 @@ describe('ui-settings-models apply', () => {
       expect(slots.entries('settings.onboarding')).toEqual([])
       await host.dispose()
       const after: IndexInjection[] = []
-      ctx.emit('webserver/index-inject', after, PAGE_PEER)
+      ctx.emit('webserver/index-inject', after)
       expect(after).toEqual([])
     } finally {
       await ctx.fiber.dispose()

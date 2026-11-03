@@ -16,10 +16,8 @@
   transition: color 100ms ease;
 }
 
-@media (hover: hover) {
-  .row:hover {
-    color: var(--dsw-alias-label-secondary);
-  }
+.row:hover {
+  color: var(--dsw-alias-label-secondary);
 }
 
 .row[data-expandable] {
@@ -61,14 +59,12 @@
   transition: opacity 100ms ease;
 }
 
-@media (hover: hover) {
-  .row:hover .iconIdle {
-    opacity: 0;
-  }
+.row:hover .iconIdle {
+  opacity: 0;
+}
 
-  .row:hover .chevronHover {
-    opacity: 1;
-  }
+.row:hover .chevronHover {
+  opacity: 1;
 }
 
 .title {
@@ -177,19 +173,14 @@
   transition: opacity 100ms ease;
 }
 
+.card:hover .inspectButton,
 .inspectButton:focus-visible {
   opacity: 1;
 }
 
-@media (hover: hover) {
-  .card:hover .inspectButton {
-    opacity: 1;
-  }
-
-  .inspectButton:hover {
-    background: var(--dsw-alias-interactive-bg-hover-solid);
-    color: var(--dsw-alias-label-primary);
-  }
+.inspectButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+  color: var(--dsw-alias-label-primary);
 }
 
 .visuallyHidden {
@@ -208,8 +199,4 @@
   .inspectButton {
     transition: none;
   }
-}
-
-@media (hover: none) {
-  .inspectButton { opacity: 1; }
 }

@@ -1,5 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
@@ -54,7 +52,6 @@ async function mount(hang: boolean, timeoutMs?: number): Promise<Context> {
   provideWorkingDirectoryFixture(ctx)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(Lsp)
   await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
   await ctx.plugin(LocalSubprocessRuntime)
@@ -77,7 +74,7 @@ async function mount(hang: boolean, timeoutMs?: number): Promise<Context> {
 let seq = 0
 const testToolSignal = new AbortController().signal
 function call(ctx: Context, args: unknown) {
-  return executeToolFixture(ctx, {
+  return ctx.tools.execute({
     signal: testToolSignal,
     callId: `int-${++seq}` as never,
     name: 'lsp',

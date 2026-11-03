@@ -15,7 +15,7 @@
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { basename, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { evaluate, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { applyEntryPatches, entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
@@ -23,10 +23,7 @@ import { exactPackageSpecifier, parseDshClient } from '@deepseek-ai/dsh-client-m
 import * as yaml from 'js-yaml'
 import { ClientRoster, type ClientRosterRow } from './roster.ts'
 
-/**
- * The `web` profile's bundle layers, in the order `dsh --profile web` applies them
- * (`PROFILE_TEMPLATES.web` in `@deepseek-ai/dsh-official-bundles`).
- */
+/** The `web` profile's bundle layers, in the order `dsh --profile web` applies them (app-boot `PROFILE_TEMPLATES.web`). */
 export const WEB_PROFILE_BUNDLES: readonly string[] = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
 interface PackageManifest {
@@ -133,14 +130,8 @@ function readManifest(path: string): PackageManifest {
   return JSON.parse(readFileSync(path, 'utf8')) as PackageManifest
 }
 
-/**
- * Prefer an anchor manifest with the requested package name, then search dependencies by depth and anchor order.
- * Return real paths so linked bundles use their own dependency directories.
- */
+/** Resolve package manifests to real paths so linked bundles use their own dependency directories. */
 function locateManifest(anchors: readonly string[], name: string): string | undefined {
-  for (const anchor of anchors) {
-    if (basename(anchor) === 'package.json' && readManifest(anchor).name === name) return realpathSync(anchor)
-  }
   const paths = anchors.map(anchor => createRequire(anchor).resolve.paths(name) ?? [])
   for (let depth = 0; depth < Math.max(...paths.map(search => search.length)); depth++) {
     for (const search of paths) {

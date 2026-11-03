@@ -62,10 +62,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .entry:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.entry:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* A fixed 26px box — the described glyph's size — so an entry's glyph sits

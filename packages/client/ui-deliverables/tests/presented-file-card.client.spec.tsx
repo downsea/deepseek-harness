@@ -16,13 +16,14 @@ const props = () => ({
   actions: <button type="button">Native file action</button>,
   t: makeTranslate(en),
 })
-it('localizes reveal failures and restores the description when progress clears', () => {
+it('localizes reveal failures and accurately reports a directory-only action', () => {
   const p = props()
   const view = render(<PresentedFileCard {...p} phase="revealError" t={makeTranslate(zh)} />)
   expect(view.getByText(zh['presented.revealError'])).toBeTruthy()
-  view.rerender(<PresentedFileCard {...p} />)
-  expect(view.getByText(p.file.description)).toBeTruthy()
-  expect(view.queryByRole('status')).toBeNull()
+  view.rerender(<PresentedFileCard {...p} phase="revealed" host={{ ...p.host, fileManager: 'directory' }} />)
+  expect(view.getByText(en['presented.directoryOpened'])).toBeTruthy()
+  view.rerender(<PresentedFileCard {...p} phase="revealed" />)
+  expect(view.getByText(en['presented.revealed'])).toBeTruthy()
 })
 
 

@@ -38,14 +38,12 @@ describe('subagent timing projection', () => {
     expect(subagentIdentityProjectionDefinition.wire.view(state)).toEqual({ mode: 'one-shot', seq: 1 })
   })
 
-  it('waits for the session projection registry and releases its projections on unload', async () => {
+  it('registers with the optional session projection registry', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await mountWorkingDirectoryFixture(ctx)
-    const pending = ctx.plugin(SubagentRuntime)
-    expect(ctx.get('subagents')).toBeUndefined()
     await ctx.plugin(SessionProjectionRegistry)
-    const serviceFiber = await pending
+    await mountWorkingDirectoryFixture(ctx)
+    const serviceFiber = await ctx.plugin(SubagentRuntime)
 
     const before = ctx.sessionProjections.snapshot(ctx.sessions.create()).values
     expect(before.subagentTiming).toEqual({ settledMs: 0 })

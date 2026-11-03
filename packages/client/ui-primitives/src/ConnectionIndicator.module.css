@@ -39,14 +39,12 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .warning:hover {
-    background: color-mix(
-      in srgb,
-      var(--dsw-alias-state-warn-tertiary),
-      var(--dsw-alias-state-warn-primary) 6%
-    );
-  }
+.warning:hover {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warn-tertiary),
+    var(--dsw-alias-state-warn-primary) 6%
+  );
 }
 
 .warning:active {

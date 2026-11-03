@@ -11,10 +11,7 @@ import type { ShortcutCommandId, ShortcutCatalogEntry } from '@deepseek-ai/dsh-c
 import { TerminalGuide, type TerminalGuideProps } from '../src/client/TerminalGuide.tsx'
 import { en } from '../src/client/locales.ts'
 
-afterEach(() => {
-  cleanup()
-  vi.unstubAllGlobals()
-})
+afterEach(cleanup)
 const SESSION = 's-terminal-guide' as SessionId
 const unused = (): never => { throw new Error('This isolated component does not consume framework hooks') }
 const standard: GlobalStandardProps & SessionStandardProps = {
@@ -23,7 +20,7 @@ const standard: GlobalStandardProps & SessionStandardProps = {
   usePanelInfo: unused, useSessions: unused, useSessionStatus: unused,
   useSessionRetainInfo: unused, useResource: unused, useWorkspaces: unused,
   ...allowAllAccess,
-  inputActions: { insertQuote: () => false, captureInsertion: unused, insertText: unused, setDraft: unused, persistDraft: unused,
+  inputActions: { captureInsertion: unused, insertText: unused, setDraft: unused, persistDraft: unused,
     addAttachments: unused, removeAttachment: unused, pruneAttachments: unused, submit: unused },
 }
 const choices: TerminalLaunchShells = {
@@ -71,30 +68,25 @@ it('opens the default shell from the main button without querying a menu', () =>
 })
 
 it.each(['hover', 'focus'] as const)('keeps the terminal shortcut inline without a tooltip on %s after rebinding', (trigger) => {
-  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(any-hover: hover)' })))
   const h = mount(en.description, { keys: ['Ctrl', '`'], aria: 'Control+`' })
   const button = h.view.getByRole('button', { name: /^New terminal/u })
-  fireEvent.pointerDown(document.body, { pointerType: 'mouse' })
-  if (trigger === 'hover') fireEvent.pointerEnter(button, { pointerType: 'mouse' })
-  else {
-    fireEvent.keyDown(document.body, { key: 'Tab' })
-    fireEvent.focus(button)
-  }
-  expect(h.view.queryByRole('tooltip', { hidden: true })).toBeNull()
+  if (trigger === 'hover') fireEvent.mouseEnter(button)
+  else fireEvent.focus(button)
+  expect(h.view.queryByRole('tooltip')).toBeNull()
   expect(Array.from(h.view.container.querySelectorAll('kbd'), key => key.textContent)).toEqual(['Ctrl', '`'])
   expect(button.getAttribute('aria-keyshortcuts')).toBe('Control+`')
 
   h.setShortcut({ keys: ['Alt', 'T'], aria: 'Alt+t' })
-  expect(h.view.queryByRole('tooltip', { hidden: true })).toBeNull()
+  expect(h.view.queryByRole('tooltip')).toBeNull()
   expect(Array.from(h.view.container.querySelectorAll('kbd'), key => key.textContent)).toEqual(['Alt', 'T'])
   expect(button.getAttribute('aria-keyshortcuts')).toBe('Alt+t')
 
   h.setShortcut({ keys: [], aria: undefined })
-  expect(h.view.queryByRole('tooltip', { hidden: true })).toBeNull()
+  expect(h.view.queryByRole('tooltip')).toBeNull()
   expect(button.hasAttribute('aria-keyshortcuts')).toBe(false)
-  if (trigger === 'hover') fireEvent.pointerLeave(button, { pointerType: 'mouse' })
+  if (trigger === 'hover') fireEvent.mouseLeave(button)
   else fireEvent.blur(button)
-  expect(h.view.queryByRole('tooltip', { hidden: true })).toBeNull()
+  expect(h.view.queryByRole('tooltip')).toBeNull()
 })
 
 it('loads on demand, remembers a selected shell before opening, and cancels on menu dismissal', async () => {

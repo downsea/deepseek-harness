@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-inspector-profile",
   "description": "Optional Web bundle for raw Session logs and Chat node inspection",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.1-rc.5",
   "icon": "./icon.svg",
   "publishConfig": {
     "access": "public"
@@ -27,7 +27,6 @@
   "files": [
     "icon.svg",
     "locale/*.json",
-    "docs",
     "lib/index.js",
     "cordis.patch.yml",
     "lib/types/**/*.d.ts"
@@ -40,8 +39,7 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-experimental-inspector": "workspace:*",
-    "@deepseek-ai/dsh-experimental-session-inspector": "workspace:*",
-    "@deepseek-ai/dsh-experimental-client-ui-stats": "workspace:*"
+    "@deepseek-ai/dsh-experimental-session-inspector": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"

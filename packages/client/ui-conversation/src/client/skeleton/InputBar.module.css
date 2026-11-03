@@ -76,12 +76,6 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
-@media (pointer: coarse) {
-  .card {
-    font-size: max(16px, var(--dsh-content-font-size, 14px));
-  }
-}
-
 /* No-workspace trigger state: an inset 1px dashed outline marks the card as a
    workspace picker rather than a live composer. Keeping the complete stroke
    inside the rounded box prevents clipped corner pixels from reading heavier. */
@@ -109,10 +103,8 @@
   pointer-events: none;
 }
 
-@media (hover: hover) {
-  .cardWorkspaceTrigger:hover::after {
-    color: var(--dsw-alias-state-business-primary);
-  }
+.cardWorkspaceTrigger:hover::after {
+  color: var(--dsw-alias-state-business-primary);
 }
 
 .accessory {
@@ -338,10 +330,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .add:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover-solid);
-  }
+.add:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
 }
 
 .add:disabled {
@@ -372,10 +362,8 @@
   appearance: none;
 }
 
-@media (hover: hover) {
-  .select:hover:not(:disabled) {
-    background-color: var(--dsw-alias-interactive-bg-hover);
-  }
+.select:hover:not(:disabled) {
+  background-color: var(--dsw-alias-interactive-bg-hover);
 }
 
 .select:disabled {
@@ -407,36 +395,13 @@
   transform: translateY(-2px);
 }
 
-@media (hover: hover) {
-  .primary:hover:not(:disabled) {
-    background: var(--dsw-alias-button-info-hover);
-  }
+.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-info-hover);
 }
 
 .primary:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-/* Sending: the message waits for the Host to accept it. The circle keeps its
-   full fill rather than the disabled fade, and an arc turns where the arrow was. */
-.primary[data-sending]:disabled {
-  opacity: 1;
-  cursor: progress;
-}
-
-.sendingSpinner {
-  animation: input-sending 800ms linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sendingSpinner {
-    animation-duration: 2400ms;
-  }
-}
-
-@keyframes input-sending {
-  to { transform: rotate(360deg); }
 }
 
 .retry {

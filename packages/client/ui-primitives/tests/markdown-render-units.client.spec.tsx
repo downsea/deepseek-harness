@@ -23,7 +23,6 @@ function makeContext(): MarkdownRenderContext {
     labels: markdownLabels,
     fileMentions: undefined,
     pathImages: undefined,
-    omitHtml: false,
     targets: createReferenceTargets(),
     footnoteOrder: [],
     footnoteCounts: new Map(),

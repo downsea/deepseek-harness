@@ -9,10 +9,9 @@ describe('HistoricalImageCache', () => {
   it('invalidates a pending image load when its Session binding is released', async () => {
     const read = Promise.withResolvers<Awaited<ReturnType<SessionFace['readAttachment']>>>()
     const runtime = await SlotTestRuntime.create()
-    const load = vi.fn(() => read.promise)
     const sessionId = await runtime.sessions.add({
       id: 's1',
-      session: { readAttachment: load },
+      session: { readAttachment: () => read.promise },
     })
     const reference = runtime.sessions.retain(sessionId)
     await reference.ready
@@ -22,7 +21,6 @@ describe('HistoricalImageCache', () => {
     } as const
 
     const pending = cache.resolve(sessionId, attachment)
-    expect(load).toHaveBeenCalledExactlyOnceWith(attachment)
     reference.release()
     await runtime.flush()
     read.resolve({ ok: true, value: { attachment, data: Uint8Array.of(1) } })

@@ -20,68 +20,6 @@ function scheduleEvent(data: unknown, seq: number): SessionEvent {
 }
 
 describe('shared Schedule management', () => {
-  it('delivers overdue tasks when the Web controller mounts and remounts', async () => {
-    const test = await harness({ sessionController: false })
-    tests.push(test)
-    const agent = agentFor(test.ctx)
-    test.resolve.mockResolvedValue({ agent })
-    const warn = vi.spyOn(test.ctx.logger, 'warn').mockImplementation(() => {})
-    const controller = {
-      apply(ctx: typeof test.ctx) {
-        ctx.provide('sessionController', { resolveAgent: test.resolve } as never)
-      },
-    }
-    try {
-      await test.service.create(agent.session.id, { prompt: 'First', title: 'First', after_seconds: 1 })
-      await vi.advanceTimersByTimeAsync(2000)
-      expect(agent.followup).not.toHaveBeenCalled()
-      const first = await test.ctx.plugin(controller)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(agent.followup).toHaveBeenCalledOnce()
-      expect(await test.service.list({ sessionId: agent.session.id })).toEqual([])
-
-      await first.dispose()
-      await test.service.create(agent.session.id, { prompt: 'Second', title: 'Second', after_seconds: 1 })
-      await vi.advanceTimersByTimeAsync(2000)
-      expect(agent.followup).toHaveBeenCalledOnce()
-      await test.ctx.plugin(controller)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(agent.followup).toHaveBeenCalledTimes(2)
-      expect(await test.service.list({ sessionId: agent.session.id })).toEqual([])
-    } finally { warn.mockRestore() }
-  })
-
-  it('does not resume delivery after Schedule unload when the Web controller arrives', async () => {
-    const test = await harness({ sessionController: false })
-    tests.push(test)
-    const agent = agentFor(test.ctx)
-    test.resolve.mockResolvedValue({ agent })
-    await test.service.create(agent.session.id, { prompt: 'Stopped', title: 'Stopped', after_seconds: 1 })
-    await test.fiber.dispose()
-    await test.ctx.plugin({
-      apply(ctx: typeof test.ctx) {
-        ctx.provide('sessionController', { resolveAgent: test.resolve } as never)
-      },
-    })
-    await vi.advanceTimersByTimeAsync(2000)
-    expect(test.resolve).not.toHaveBeenCalled()
-    expect(agent.followup).not.toHaveBeenCalled()
-  })
-
-  it('keeps an active task when the injected Web controller refuses restoration', async () => {
-    const test = await setup()
-    const warn = vi.spyOn(test.ctx.logger, 'warn').mockImplementation(() => {})
-    test.resolve.mockResolvedValueOnce({ error: new Error('Web restoration unavailable') } as never)
-    try {
-      const sessionId = SessionId('refused-web-restoration')
-      const record = await test.service.create(sessionId, { prompt: 'Keep', title: 'Keep', after_seconds: 1 })
-      await vi.advanceTimersByTimeAsync(1000)
-      expect(test.resolve).toHaveBeenCalledOnce()
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Web restoration unavailable'))
-      expect((await test.service.list({ sessionId })).map(task => task.id)).toEqual([record.id])
-    } finally { warn.mockRestore() }
-  })
-
   it('initializes a new task with empty known delivery history', async () => {
     const { service, pool } = await setup()
     const sessionId = SessionId('new-history')
@@ -171,14 +109,14 @@ describe('shared Schedule management', () => {
     expect(await service.catalog()).toEqual([])
   })
 
-  it('reports a stop failure without announcing an unapplied batch', async () => {
+  it('notifies observers when a stop removes part of the set before a delete fails', async () => {
     const pool = new MemoryMediaPool()
-    let batches = 0
+    let deletes = 0
+    // The first row lands durably; the second row's write rejects.
     const backend = gatedScheduleBackend(pool, {
-      deleteRecords: async (table) => {
-        if (table !== 'tasks') return
-        batches += 1
-        throw new Error('injected batch failure')
+      deleteRecord: async (table) => {
+        deletes += 1
+        if (table === 'tasks' && deletes === 2) throw new Error('injected delete failure')
       },
     })
     const test = await harness({ pool, backend })
@@ -189,27 +127,21 @@ describe('shared Schedule management', () => {
     await service.create(sessionId, { prompt: 'second', after_seconds: 60, title: 'Second' })
     const changed = vi.fn()
     ctx.on('schedule/changed', changed)
-    // The batch was never applied, so observers hear nothing and the caller still
-    // receives the failure.
+    // The first row is durably gone, so observers must hear about it even though
+    // the second delete failed, and the caller must still receive that failure.
     const failure = await ctx.parallel('workspace/session-stop', { sessionId })
       .then(() => undefined, (error: unknown) => error)
     expect(failure).toBeInstanceOf(AggregateError)
-    expect(batches).toBe(1)
-    // The batch may have landed some rows under unknown-state, so the service
-    // announces the change before the rejection reaches the caller.
-    expect(changed).toHaveBeenCalledTimes(1)
-    expect((await service.catalog()).map(entry => entry.title).sort()).toEqual(['First', 'Second'])
+    expect(changed).toHaveBeenCalled()
+    expect((await service.catalog()).map(entry => entry.title)).toEqual(['Second'])
   })
 
   it('reports a stop failure whose rejection reason is not an Error', async () => {
     const pool = new MemoryMediaPool()
-    let batches = 0
     const backend = gatedScheduleBackend(pool, {
       // A reason that is not an Error is still a rejection the caller must see.
-      deleteRecords: async (table) => {
-        if (table !== 'tasks') return
-        batches += 1
-        throw undefined
+      deleteRecord: async (table) => {
+        if (table === 'tasks') throw undefined
       },
     })
     const test = await harness({ pool, backend })
@@ -224,30 +156,37 @@ describe('shared Schedule management', () => {
     // Nothing landed, and a reason that carries no Error must not read as success
     // with the reminder still armed.
     expect(failure).toBeInstanceOf(AggregateError)
-    expect((failure as AggregateError).errors.map(String).some(text => text.includes('schedule stop failed'))).toBe(true)
-    expect(batches).toBe(1)
-    expect(changed).toHaveBeenCalledTimes(1)
+    expect(changed).not.toHaveBeenCalled()
     expect((await service.catalog()).map(entry => entry.title)).toEqual(['First'])
   })
 
-  it('removes the whole stop set in one batch write', async () => {
+  it('attempts every row and notifies nothing when the first stop delete fails', async () => {
     const pool = new MemoryMediaPool()
-    const batches: string[][] = []
+    let deletes = 0
     const backend = gatedScheduleBackend(pool, {
-      deleteRecords: async (table, keys) => {
-        if (table === 'tasks') batches.push([...keys])
+      deleteRecord: async (table) => {
+        if (table !== 'tasks') return
+        deletes += 1
+        throw new Error('injected delete failure')
       },
     })
     const test = await harness({ pool, backend })
     tests.push(test)
     const { ctx, service } = test
-    const sessionId = SessionId('stop-one-batch')
+    const sessionId = SessionId('stop-failed')
     await service.create(sessionId, { prompt: 'first', after_seconds: 60, title: 'First' })
     await service.create(sessionId, { prompt: 'second', after_seconds: 60, title: 'Second' })
-    await ctx.parallel('workspace/session-stop', { sessionId })
-    expect(batches).toHaveLength(1)
-    expect(batches[0]).toHaveLength(2)
-    expect(await service.catalog()).toEqual([])
+    const changed = vi.fn()
+    ctx.on('schedule/changed', changed)
+    const failure = await ctx.parallel('workspace/session-stop', { sessionId })
+      .then(() => undefined, (error: unknown) => error)
+    // Nothing landed, so nothing is announced; every row was still attempted,
+    // because a row this stop skipped would stay armed in an archived Session.
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(deletes).toBe(2)
+    expect(changed).not.toHaveBeenCalled()
+    // The catalog sorts by target then id, so compare the surviving set, not its order.
+    expect((await service.catalog()).map(entry => entry.title).sort()).toEqual(['First', 'Second'])
   })
 
   it('catalogs persisted reminders across cold Sessions in target and identity order', async () => {

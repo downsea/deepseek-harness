@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import type { Readable, Writable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { brandString } from '@deepseek-ai/dsh-brand'
 import { FsError, type FsTarget, type FsWriteIntent, type FsVersion } from '@deepseek-ai/dsh-fs'
 import { SandboxedFileSystem } from '@deepseek-ai/dsh-fs-sandbox'
 import type {} from '@deepseek-ai/dsh-subprocess'
@@ -88,14 +87,8 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
   }
   const policy = async (raw: unknown, signal: AbortSignal): Promise<SandboxExecutionPolicy> => {
     const parsed = policySchema.parse(raw)
-    const { sessionId, additionalWritableRoots: additional, ...fields } = parsed
     const target = await ctx.fs.resolve(parsed.workspaceRoot, { signal })
-    return {
-      ...fields,
-      workspaceRoot: ctx.fs.processPath(target),
-      ...additional === undefined ? {} : { additionalWritableRoots: additional },
-      ...sessionId === undefined ? {} : { sessionId: brandString<NonNullable<SandboxExecutionPolicy['sessionId']>>(sessionId) },
-    }
+    return { ...parsed, workspaceRoot: ctx.fs.processPath(target) } as SandboxExecutionPolicy
   }
   const asTarget = (raw: unknown): FsTarget => targetSchema.parse(raw) as FsTarget
   const peer = new SshRpcPeer(transport.input, transport.output, MAX_FRAME_BYTES, 128, async (method, raw, requestSignal) => {

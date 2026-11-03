@@ -1,8 +1,7 @@
 /**
  * One opened JSON unit in `single` layout: the whole unit is one document at
  * `<root>/<name>.json`. The in-memory state is authoritative; every write
- * primitive mutates it and republishes the whole file atomically, including a
- * batch delete, which changes several records but publishes once. Writes are
+ * primitive mutates it and republishes the whole file atomically. Writes are
  * NOT queued here — per the backend contract, write ordering belongs to the
  * caller (the domain layer's write chain); this unit only guarantees that
  * each single call publishes a complete, durable file. The `per-record`
@@ -47,8 +46,6 @@ export async function openSingleUnit(
         tables: new Map(descriptor.tables.map(table => [table, new Map<string, unknown>()])),
       }
       : parse(text, descriptor)
-  // Opening leaves the file untouched; the next atomic publish uses the current stamp.
-  state.version = descriptor.version
   return new SingleJsonUnit(descriptor, path, state, onClose)
 }
 
@@ -89,24 +86,14 @@ class SingleJsonUnit implements KvUnit {
     })
   }
 
-  deleteRecord(table: string, key: string): Promise<void> {
-    return this.deleteRecords(table, [key])
-  }
-
-  async deleteRecords(table: string, keys: readonly string[]): Promise<void> {
+  async deleteRecord(table: string, key: string): Promise<void> {
     this.assertOpen()
     const records = this.records(table)
-    const removed = new Map<string, unknown>()
-    for (const key of new Set(keys)) {
-      if (!records.has(key)) continue
-      removed.set(key, records.get(key))
-      records.delete(key)
-    }
-    if (removed.size === 0) return
-    // One atomic publish applies the whole batch; a failed publish restores
-    // every removed entry so memory and the medium stay together.
+    if (!records.has(key)) return
+    const previous = records.get(key)
+    records.delete(key)
     await this.publish().catch((error: unknown) => {
-      for (const [key, value] of removed) records.set(key, value)
+      records.set(key, previous)
       throw error
     })
   }
@@ -150,7 +137,7 @@ class SingleJsonUnit implements KvUnit {
     return records
   }
 
-  private async publish(): Promise<void> {
+  private publish(): Promise<void> {
     const write = writeAtomic(this.path, serialize(this.descriptor.name, this.state))
     this.inFlight.add(write)
     // Swallow only on the tracking branch: the caller still awaits `write`

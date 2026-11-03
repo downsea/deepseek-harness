@@ -5,11 +5,7 @@
  * commit + image-block rendering, attachment admission failures, and the
  * regression that `read` keeps its text-only contract.
  */
-import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
-import { executeToolFixture, executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
-import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from 'vitest'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
@@ -22,6 +18,7 @@ import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
+import type { Config as ToolConfig } from '@deepseek-ai/dsh-tools'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
@@ -105,7 +102,7 @@ interface SetupOptions {
   attachments?: boolean
   llm?: boolean
   storeConfig?: { maxImageBytes?: number; maxImagePixels?: number; maxImageDimension?: number; maxMessageImageBytes?: number }
-  toolMode?: ('native' | 'ptc')
+  toolMode?: ToolConfig['mode']
 }
 
 async function setup(options: SetupOptions = {}) {
@@ -113,8 +110,7 @@ async function setup(options: SetupOptions = {}) {
   onTestFinished(async () => { await ctx.fiber.dispose() })
   provideWorkingDirectoryFixture(ctx)
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin((options.toolMode ?? 'native') === 'ptc' ? PtcToolExecutor : NativeToolExecutor)
+  await ctx.plugin(ToolRuntime, { mode: options.toolMode ?? 'native' })
   if (options.toolMode === 'ptc') {
     await ctx.plugin(FakeRuntime)
   }
@@ -150,8 +146,7 @@ function agentOn(model: string | undefined, provider = 'visual', messages: reado
 
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: object) {
-  const execute = name === RUN_CODE_NAME ? executeModelToolFixture : executeToolFixture
-  return execute(ctx, {
+  return ctx.tools.execute({
     signal: testToolSignal,
     callId: ToolCallId(`img-call-${++callCounter}`),
     name,
@@ -793,7 +788,6 @@ describe('registration surface', () => {
       provideWorkingDirectoryFixture(ctx)
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
-      await ctx.plugin(NativeToolExecutor)
       await ctx.plugin(LocalFileSystem, { cwd: dir })
       const attachment = await ctx.plugin(LocalAttachmentStore, { dshHome: home })
       const plugin = await ctx.plugin(ToolFs, { read: false, write: false, edit: false })
@@ -814,8 +808,7 @@ describe('registration surface', () => {
     const ctx = new Context()
     provideWorkingDirectoryFixture(ctx)
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(ToolRuntime, { mode: 'native' })
     await ctx.plugin(LocalFileSystem, { cwd: dir })
     await ctx.plugin(FsPolicy)
     const attachmentsFiber = await ctx.plugin(LocalAttachmentStore, { dshHome: home })
@@ -840,7 +833,7 @@ describe('registration surface', () => {
 
   it('declares read_image parallel-safe and presents a read-family card', async () => {
     const ctx = await setup()
-    expect(new ToolExecutionPipeline(ctx).executionMode({
+    expect(ctx.tools.executionMode({
       signal: testToolSignal, callId: ToolCallId('img-parallel'), name: 'read_image', arguments: { file_path: 'a.png' },
     })).toEqual({ kind: 'parallel' })
     expect(ctx.tools.get('read_image')?.presentCall?.({ file_path: 'shot.png' })).toEqual({

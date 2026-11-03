@@ -1,5 +1,4 @@
 /** Registered parent fixtures for external backend activation tests. */
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { randomUUID } from 'node:crypto'
 import { onTestFinished } from 'vitest'
@@ -7,7 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import { unsupportedModel, createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { SubagentActivation, SubagentStartRequest } from '../src/types.ts'
 
 const parents = new WeakMap<Context, Promise<WeakMap<Agent, Agent>>>()
@@ -19,7 +18,6 @@ function parentStore(ctx: Context): Promise<WeakMap<Agent, Agent>> {
   onTestFinished(() => ctx.fiber.dispose())
   const ready = (async () => {
     if (ctx.get('sessions') === undefined) await ctx.plugin(SessionStore)
-    if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
     if (ctx.get('agents') === undefined) await ctx.plugin(AgentRegistry)
     return new WeakMap<Agent, Agent>()
   })()
@@ -40,7 +38,6 @@ export async function externalTestParent(ctx: Context, cwd?: string): Promise<Ag
     ctx,
     options: {},
     status: 'idle',
-    model: unsupportedModel(),
     inbox,
     send: (message, target) => { inbox.append(target, message) },
     followup: (message) => { inbox.append('next-turn', message) },

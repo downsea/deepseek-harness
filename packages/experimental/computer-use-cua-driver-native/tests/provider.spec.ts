@@ -1,7 +1,5 @@
 /** Native SDK lifecycle and catalog behavior without desktop access. */
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import ComputerUseRegistry from '@deepseek-ai/dsh-computer-use'
@@ -22,7 +20,6 @@ beforeEach(async () => {
   await ctx.plugin(ComputerUseRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
 })
 
 afterEach(async () => {
@@ -30,7 +27,7 @@ afterEach(async () => {
 })
 
 function execute(rawName: string, args: Record<string, unknown> = {}) {
-  return executeToolFixture(ctx, {
+  return ctx.tools.execute({
     name: `cua_driver_native__${rawName}`,
     callId: ToolCallId('native-test'),
     arguments: args,
@@ -112,7 +109,7 @@ describe('Cua Driver native provider', () => {
         return settled.promise
       },
     })
-    const result = executeToolFixture(ctx, {
+    const result = ctx.tools.execute({
       name: 'unrelated', callId: ToolCallId('unrelated'), arguments: {}, signal: controller.signal,
     })
     try {

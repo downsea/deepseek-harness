@@ -11,10 +11,10 @@ export const LOCALE_PREFERENCE_FIELD = 'preference'
 /** Accepted BCP 47-style language ids. */
 export const LOCALE_ID_PATTERN = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u
 
-/** Baseline locales required by typed namespace dictionary registration. */
+/** Locale identifiers shipped by the browser client. */
 export const LOCALE_IDS = ['zh', 'en'] as const
 
-/** Baseline locale required by typed namespace dictionary registration. */
+/** Locale identifier shipped by the browser client. */
 export type BuiltInLocaleId = typeof LOCALE_IDS[number]
 
 /** Open locale identifier accepted from language-pack plugins. */

@@ -2,8 +2,8 @@
  * Verify a release family's version baseline, and — when publishing — that the
  * run comes from the family's tag and its members are publishable.
  *
- * Publication happens only from GitHub Actions. Publishability is mandatory;
- * tag validation may be explicitly bypassed with `--skip-tag-check`
+ * Publication happens only from GitHub Actions, so the tag and publishability
+ * checks are gates on the workflow, not advisory local warnings
  * ([rationale](../../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)).
  */
 
@@ -73,10 +73,7 @@ function verifyTag(family: ReleaseFamily, members: readonly ReleaseMember[], ref
 /** Run the verification for the family named by `--family`. */
 function main(): void {
   const { values } = parseArgs({
-    options: {
-      family: { type: 'string' },
-      'skip-tag-check': { type: 'boolean', default: false },
-    },
+    options: { family: { type: 'string' } },
     allowPositionals: false,
   })
   if (values.family === undefined) throw new Error('usage: verify.ts --family <dsh|vendor>')
@@ -98,11 +95,7 @@ function main(): void {
   const publishing = process.env.RELEASE_PUBLISH === 'true'
   if (publishing) {
     verifyPublishable(members)
-    if (values['skip-tag-check']) {
-      console.warn(`release verify: WARNING tag validation explicitly skipped for ref ${process.env.GITHUB_REF || '(no ref)'}`)
-    } else {
-      verifyTag(family, members, process.env.GITHUB_REF ?? '')
-    }
+    verifyTag(family, members, process.env.GITHUB_REF ?? '')
   }
 
   const versions = [...new Set(members.map(member => member.version))]

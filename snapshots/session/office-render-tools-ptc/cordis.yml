@@ -12,8 +12,6 @@
 - id: tool-pwsh
   disabled: true
 
-- id: tool-executor-native
-  disabled: true
-
-- id: tool-executor-ptc
-  disabled: false
+- id: tools
+  config:
+    mode: ptc

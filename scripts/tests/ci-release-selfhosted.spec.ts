@@ -139,10 +139,8 @@ for (const [file, jobIds] of [['release.yml', ['dependencies', 'pack']], ['relea
         it('retains the dependency and pack verification commands', () => {
           const commands = job.steps.flatMap(step => step.run === undefined ? [] : [step.run])
           if (jobId === 'dependencies') {
-            // Both verifications share one step so the lane pays the longer half.
-            const combined = commands.find(command => command.includes('verify-package-dependencies'))
-            expect(combined).toContain('verify-npm-install-layout')
-            expect(combined).toContain('wait "$layout_pid"')
+            expect(commands).toContain('pnpm run verify-package-dependencies')
+            expect(commands).toContain('pnpm run verify-npm-install-layout')
           } else {
             const family = file === 'release.yml' ? 'dsh' : 'vendor'
             const output = family === 'dsh' ? 'dist/npm' : 'dist/npm-vendor'

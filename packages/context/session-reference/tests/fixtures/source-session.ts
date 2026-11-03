@@ -36,5 +36,4 @@ export function apply(ctx: Context): void {
     }),
   }, { surfaceOp: 'append' })
   ctx.effect(() => ctx.sessions.enter(source))
-  ctx.sessions.announce(source)
 }

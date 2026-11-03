@@ -67,18 +67,6 @@
   transition: transform var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
-/* An item mounted by the opening has no closed style to slide from; it starts
-   at the closed position like the items already mounted. Only an opening
-   marks the panel, so items that mount while it stays open, or that a
-   Session switch shows, appear in place. */
-@starting-style {
-  .panel[data-sidebar-right-opening] :global([data-dockkit-host='dock']),
-  .panel[data-sidebar-right-opening] :global([data-dockkit-empty]),
-  .panel[data-sidebar-right-opening] :global([data-dockkit-divider]) {
-    transform: translateX(var(--dsh-sidebar-width));
-  }
-}
-
 .panel[data-sidebar-right-panel='fullscreen'] {
   --dsh-dockkit-dock-layer: 40;
 }
@@ -122,10 +110,7 @@
 @media (prefers-reduced-motion: reduce) {
   .panel :global([data-dockkit-host='dock']),
   .panel :global([data-dockkit-empty]),
-  .panel :global([data-dockkit-divider]),
-  .panel[data-sidebar-right-open] :global([data-dockkit-host='dock']),
-  .panel[data-sidebar-right-open] :global([data-dockkit-empty]),
-  .panel[data-sidebar-right-open] :global([data-dockkit-divider]) {
+  .panel :global([data-dockkit-divider]) {
     transition: none;
   }
 }
@@ -153,10 +138,8 @@
   height: 15px;
 }
 
-@media (hover: hover) {
-  .iconButton:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.iconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* The expand button's glyph, so collapse and expand share one affordance. */

@@ -5,12 +5,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '@deepseek-ai/dsh-client-ui-trajectory/client'
-import type {} from '@deepseek-ai/dsh-client-ui-file-drag/client'
-import { ComposerAttachments, type ComposerAttachmentsInjected } from './ComposerAttachments.tsx'
+import { ComposerAttachments } from './ComposerAttachments.tsx'
 import { MessageImages, MessageImagesContent } from './MessageImages.tsx'
 
 /** Slot registry required by the attachment presentation plugin. */
-export const inject = ['slots', 'fileDrag']
+export const inject = ['slots']
 
 /**
  * Register composer attachments and the shared gallery with its domain adapters.
@@ -19,11 +18,9 @@ export const inject = ['slots', 'fileDrag']
 export function apply(ctx: ClientContext): void {
   ctx.slots.registerFactory({
     name: 'conversation.images.content', scope: 'root', locale: 'conversation',
-    inject: () => ({ fileDrag: ctx.fileDrag.actions }),
   }, MessageImagesContent)
   ctx.slots.inject('conversation.input.attachments', () => ctx.slots.register({
     name: 'conversation.input.attachments',
-    inject: (): ComposerAttachmentsInjected => ({ readFileDrag: ctx.fileDrag.read }),
     locale: 'conversation',
   }, ComposerAttachments))
   ctx.slots.inject('conversation.chat.message.images', () => ctx.slots.register({

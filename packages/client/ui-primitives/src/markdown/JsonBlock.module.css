@@ -13,10 +13,8 @@
   border-radius: var(--dsw-radius-sm);
 }
 
-@media (hover: hover) {
-  .toggle:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .body {

@@ -3,24 +3,12 @@
   flex: none;
 }
 
-.anchor .warning {
+.anchor .warning, .anchor .warning:hover {
   color: var(--dsw-alias-state-warn-label);
 }
 
-@media (hover: hover) {
-  .anchor .warning:hover {
-    color: var(--dsw-alias-state-warn-label);
-  }
-}
-
-.anchor .warning[aria-expanded='true'] {
+.anchor .warning:hover, .anchor .warning[aria-expanded='true'] {
   background: var(--dsw-alias-state-warn-tertiary);
-}
-
-@media (hover: hover) {
-  .anchor .warning:hover {
-    background: var(--dsw-alias-state-warn-tertiary);
-  }
 }
 
 .panel {

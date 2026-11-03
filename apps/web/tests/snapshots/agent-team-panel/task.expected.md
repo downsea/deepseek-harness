@@ -1,4 +1,4 @@
-- dialog "Agent team":
+- dialog "Agent Team":
   - heading "Members" [level=3]
   - button "lead Current chat Inactive" [disabled]
   - heading "Shared tasks 1" [level=3]

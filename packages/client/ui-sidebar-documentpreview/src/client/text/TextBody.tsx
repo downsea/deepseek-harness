@@ -1,5 +1,6 @@
 /** Plain source display for files without a more specific document renderer. */
 import type { ReactNode } from 'react'
+import clsx from 'clsx'
 import type { DocumentPreviewProps } from '../document/contract.ts'
 import { linesOf } from './lines.ts'
 import css from '../TextPreview.module.css'
@@ -19,7 +20,7 @@ export function TextBody({ content, useTabInfo }: DocumentPreviewProps): ReactNo
             return (
               <div
                 key={number}
-                className={css.line}
+                className={clsx(css.line, number === target && css.lineTarget)}
                 data-textpreview-line={number}
                 {...number === target ? { 'data-textpreview-target': number } : {}}
               >

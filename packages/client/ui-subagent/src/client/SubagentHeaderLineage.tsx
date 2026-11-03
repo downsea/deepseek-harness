@@ -353,26 +353,24 @@ function CatalogRows({
                     )}
                   </span>
                 )}
-                {isCurrent || external
-                  ? <span className={css.sidebarSpace} />
-                  : (
-                    <Tooltip label={t('open.sidebar')} side="bottom" align="end">
-                      <button
-                        type="button"
-                        className={css.sidebarButton}
-                        aria-label={t('open.sidebar.aria', { label })}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          openChildAside({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
-                          closeCatalog()
-                        }}
-                        onKeyDown={(event) => { event.stopPropagation() }}
-                      >
-                        <IconChevronRightOutlineRegular />
-                      </button>
-                    </Tooltip>
-                  )}
+                {!isCurrent && !external && (
+                  <Tooltip label={t('open.sidebar')} side="bottom" align="end">
+                    <button
+                      type="button"
+                      className={css.sidebarButton}
+                      aria-label={t('open.sidebar.aria', { label })}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        openChildAside({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
+                        closeCatalog()
+                      }}
+                      onKeyDown={(event) => { event.stopPropagation() }}
+                    >
+                      <IconChevronRightOutlineRegular />
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             </div>
             {isExpanded && (
@@ -664,13 +662,11 @@ function CatalogDropdown({
       className={`${css.root} ${variant === 'switcher' ? css.switcherRoot : ''}`}
       ref={rootRef}
       onKeyDown={navigate}
-      onPointerLeave={scheduleHoverClose}
+      onMouseLeave={scheduleHoverClose}
     >
       <button
         ref={triggerRef}
-        onPointerEnter={(event) => {
-          if (event.pointerType !== 'touch') scheduleHoverOpen()
-        }}
+        onMouseEnter={scheduleHoverOpen}
         type="button"
         className={variant === 'switcher'
           ? `${css.switcherTrigger} ${ancestorSwitcher ? css.ancestorSwitcherTrigger : ''}`
@@ -723,10 +719,8 @@ function CatalogDropdown({
           ref={menuRef}
           className={css.menu}
           style={menuPosition}
-          onPointerEnter={(event) => {
-            if (event.pointerType !== 'touch') cancelHoverClose()
-          }}
-          onPointerLeave={scheduleHoverClose}
+          onMouseEnter={cancelHoverClose}
+          onMouseLeave={scheduleHoverClose}
         >
           <div className={css.menuBody} role="tree" aria-label={t('tree.aria')}>
             <CatalogRows

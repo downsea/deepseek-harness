@@ -71,10 +71,10 @@ export interface ToolRowProps {
   /**
    * Dispatch the image gallery through the tool-owned `tool.call.images`
    * slot, supplied by the toolview that owns this row together with the
-   * Gateway-authorized loader.
+   * session-authorized loader.
    */
   renderSlot?: PropsRenderSlots<'tool.call.images'>['renderSlot'] | undefined
-  /** Gateway-authorized image URL loader for the gallery slot. */
+  /** Session-authorized image URL loader for the gallery slot. */
   loadImage?: MessageImageLoader | undefined
   search?: SearchCardModel | null | undefined
   web?: WebCardModelProps | null | undefined

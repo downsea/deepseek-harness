@@ -7,11 +7,7 @@
  * catalog, so a row is only ever added deliberately. Fetching asks the endpoint
  * **the form currently shows** — including a key typed but not yet saved — so
  * adding a provider is one pass instead of save-then-return; the reply is
- * candidates the user picks from, never configuration written behind them. The
- * picker opens with the configured models checked, so confirming it adds the
- * newly checked candidates and removes the unchecked configured ones in the
- * draft; configured rows the reply does not list are kept, and a confirmation
- * that would empty the list is refused.
+ * candidates the user picks from, never configuration written behind them.
  *
  * A provider that cannot be interrogated (an unreachable endpoint, a protocol
  * with no readable listing) is not a dead end: the failure is shown next to the
@@ -21,14 +17,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-api-remotes/client'
-import { AnimatedRows, Button, IconPlusOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatCapacity, parseCapacity } from './DeepSeekModelsEditor.tsx'
 import type { ModelsOperations } from './operations.ts'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
 import type { en } from './locales.ts'
 import { ModelRow } from './ModelRow.tsx'
-import { useModelRows } from './useModelRows.ts'
-import type { CapacityField } from './useModelRows.ts'
 import styles from './ModelsSection.module.css'
 
 /**
@@ -111,17 +105,23 @@ export interface ModelListEditorProps {
   onBusyChange: (busy: boolean) => void
 }
 
+/** The two token counts edited as K/M-suffixed text behind a row's disclosure. */
+type CapacityField = 'contextWindow' | 'maxTokens'
+
 /**
  * What an empty capacity field is worth, shown as its placeholder so a row left
  * blank does not read as a model with no capacity at all.
  *
- * These hints match llm-pi-ai's built-in `defaultContextWindow` and
- * `defaultMaxTokens` in decimal K/M notation. Provider overrides are not
- * available to this component and are not reflected in the hints.
+ * The magnitudes are the adapter's own route-level fallbacks (`llm-pi-ai`'s
+ * `defaultContextWindow` and `defaultMaxTokens`), spelled the way a person
+ * would say them. They are a hint, not a mirror: this page counts `K` as 1000,
+ * so typing `256K` stores 256000 while leaving the field blank keeps the
+ * adapter's 262144. A deployment that overrides those defaults is not
+ * reflected here — nothing on this page can read them.
  */
 const CAPACITY_HINT: Readonly<Record<CapacityField, string>> = {
-  contextWindow: '1M',
-  maxTokens: '128K',
+  contextWindow: '256K',
+  maxTokens: '32K',
 }
 
 /**
@@ -174,20 +174,51 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const catalog = inheritedCatalog?.provider === catalogProvider ? inheritedCatalog?.models : undefined
   const inputDefaults = useMemo(() => new Map(catalog?.map(model => [model.id, model.inputModalities])), [catalog])
   const [candidates, setCandidates] = useState<readonly LlmDiscoveredModel[] | undefined>(undefined)
-  // Candidates whose checkbox the user flipped from its default. The default
-  // is read from the list at render, so a row drafted while the fetch was in
-  // flight opens checked rather than being removed by a stale selection.
-  const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set())
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const [candidateQuery, setCandidateQuery] = useState('')
-  const rowState = useModelRows(models, onChange, disabled)
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set())
+  // Capacities are edited as text, so a field's keystrokes are held here rather
+  // than re-derived from the parsed count on every change — that would rewrite
+  // `1000` to `1K` mid-word. Unreadable text is kept past blur so the refusal
+  // names a row the user can still see, which is why this is one entry PER
+  // FIELD: a single buffer would be displaced by editing any other field, and
+  // the abandoned one would render its stored NaN as the literal `NaN`.
+  const [editing, setEditing] = useState<ReadonlyMap<string, string>>(new Map())
+
+  /** Buffer key for one capacity field; the row half moves when rows do. */
+  const bufferKey = (index: number, field: CapacityField): string => `${String(index)}:${field}`
 
   const editCapacity = (index: number, field: CapacityField, text: string): void => {
-    rowState.edit(index, field, text)
+    setEditing(current => new Map(current).set(bufferKey(index, field), text))
     patch(index, { [field]: parseCapacity(text) })
   }
 
+  /** What a capacity field shows: the buffer while typing, else the stored count. */
   const capacityText = (model: ModelDraft, index: number, field: CapacityField): string =>
-    rowState.rows[index]?.editing.get(field) ?? capacitySpelling(numberOf(model, field))
+    editing.get(bufferKey(index, field)) ?? capacitySpelling(numberOf(model, field))
+
+  /** Drop one row's entries and shift the rows after it down, in one pass. */
+  const reindexOnRemove = (
+    current: ReadonlyMap<string, string>,
+    index: number,
+  ): Map<string, string> => {
+    const next = new Map<string, string>()
+    for (const [key, value] of current) {
+      const at = Number(key.slice(0, key.indexOf(':')))
+      if (at === index) continue
+      // Only the row number moves; the field half of the key is untouched.
+      next.set(at > index ? key.replace(/^\d+/, String(at - 1)) : key, value)
+    }
+    return next
+  }
+
+  const toggleExpanded = (index: number): void => {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (!next.delete(index)) next.add(index)
+      return next
+    })
+  }
 
   const patch = (index: number, next: Record<string, string | number | undefined>): void => {
     onChange(models.map((model, at) => {
@@ -226,10 +257,12 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         setFailure(t('fetchEmpty'))
         return
       }
+      // Everything already configured starts unchecked, so adopting a
+      // selection never silently rewrites a capacity the user corrected.
+      const known = new Set(models.map(model => textOf(model, 'id')))
       setCandidateQuery('')
-      setFlipped(new Set())
-      // A listing may repeat an id; the picker and the list hold each model once.
-      setCandidates([...new Map(found.map(model => [model.id, model])).values()])
+      setCandidates(found)
+      setPicked(new Set(found.filter(model => !known.has(model.id)).map(model => model.id)))
     } finally {
       setBusy(false)
     }
@@ -237,68 +270,50 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
 
   const closePicker = (): void => {
     setCandidates(undefined)
-    setFlipped(new Set())
+    setPicked(new Set())
     setCandidateQuery('')
   }
 
-  // The picker opens on the current list so a few models can be added or
-  // removed in one place. A list with no identified model serves the whole
-  // catalog or nothing yet, so every candidate starts checked.
-  const configuredIds = new Set(models.map(model => textOf(model, 'id')).filter(id => id.length > 0))
-  const pickedByDefault = (id: string): boolean => configuredIds.size === 0 || configuredIds.has(id)
-  const isPicked = (id: string): boolean => pickedByDefault(id) !== flipped.has(id)
-
-  const activeCandidates = candidates ?? []
-  const listed = new Set(activeCandidates.map(candidate => candidate.id))
-  // An unchecked candidate leaves the list. A row the listing does not name,
-  // including a half-typed row without an id, is outside the picker and stays.
-  const removedRows = new Set<number>()
-  models.forEach((model, at) => {
-    const id = textOf(model, 'id')
-    if (listed.has(id) && !isPicked(id)) removedRows.add(at)
-  })
-  // A kept row the user already tuned wins over the provider's own numbers.
-  const keptRows = models.filter((_model, at) => !removedRows.has(at))
-  const keptIds = new Set(keptRows.map(model => textOf(model, 'id')))
-  const addedRows = activeCandidates
-    .filter(candidate => isPicked(candidate.id) && !keptIds.has(candidate.id))
-    .map(adopt)
-  // An empty list serves the whole catalog, so emptying a non-empty list
-  // would restore every model instead of removing the unchecked ones.
-  const emptiesList = models.length > 0 && keptRows.length === 0 && addedRows.length === 0
-
   const adoptPicked = (): void => {
-    onChange([...keptRows, ...addedRows])
-    rowState.forget(removedRows)
+    /* v8 ignore next -- the dialog only renders with candidates loaded */
+    if (candidates === undefined) return
+    const byId = new Map(models.map(model => [textOf(model, 'id'), model]))
+    for (const candidate of candidates) {
+      if (!picked.has(candidate.id)) continue
+      // A row the user already tuned wins over the provider's own numbers.
+      // Keyed by id, so a half-typed row whose id is still empty is not a
+      // match and the candidate joins as its own row — correct, since a row
+      // without an id is not yet a model and the create/apply gates refuse it.
+      byId.set(candidate.id, byId.get(candidate.id) ?? adopt(candidate))
+    }
+    onChange([...byId.values()])
     closePicker()
   }
 
   const toggle = (id: string): void => {
-    setFlipped((current) => {
+    setPicked((current) => {
       const next = new Set(current)
       if (!next.delete(id)) next.add(id)
       return next
     })
   }
 
+  const activeCandidates = candidates ?? []
   const normalizedCandidateQuery = candidateQuery.trim().toLowerCase()
   const visibleCandidates = normalizedCandidateQuery.length === 0
     ? activeCandidates
     : activeCandidates.filter(candidate => candidate.id.toLowerCase().includes(normalizedCandidateQuery)
       || candidate.name?.toLowerCase().includes(normalizedCandidateQuery) === true)
   const allVisibleCandidatesPicked = visibleCandidates.length > 0
-    && visibleCandidates.every(candidate => isPicked(candidate.id))
+    && visibleCandidates.every(candidate => picked.has(candidate.id))
 
   const toggleVisibleCandidates = (): void => {
-    // Only visible candidates change: a hidden checked one may be a configured
-    // model, and clearing it would remove that model unseen.
-    const target = !allVisibleCandidatesPicked
-    setFlipped((current) => {
-      const next = new Set(current)
-      for (const candidate of visibleCandidates) {
-        if (pickedByDefault(candidate.id) === target) next.delete(candidate.id)
-        else next.add(candidate.id)
+    setPicked((current) => {
+      if (visibleCandidates.every(candidate => current.has(candidate.id))) {
+        return new Set()
       }
+      const next = new Set(current)
+      for (const candidate of visibleCandidates) next.add(candidate.id)
       return next
     })
   }
@@ -325,7 +340,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
               type="button"
               className={styles['linkButton']}
               disabled={disabled}
-              onClick={() => { rowState.reset(); props.onReset?.() }}
+              onClick={props.onReset}
             >
               {t('resetModels')}
             </button>
@@ -344,19 +359,17 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         </button>
       </div>
       {models.length === 0 ? <p className={styles['modelEmpty']}>{t('modelsEmpty')}</p> : null}
-      <AnimatedRows className={styles['modelList'] as string} rowKeys={rowState.rows.map(row => String(row.key))} ready resetKey="">
-        {rowState.rows.map(({ model, key, expanded, order }, index) => (
+      <div className={styles['modelList']}>
+        {models.map((model, index) => (
           <ModelRow
-            key={key}
-            rowKey={key}
-            order={order}
+            key={index}
             model={model}
             position={index + 1}
             inputField="input"
             inputFallback={inputDefaults.get(textOf(model, 'id')) ?? props.defaultInput}
             inputLoading={catalogProvider !== undefined && catalog === undefined}
             reasoningLevels={props.reasoningLevels}
-            expanded={expanded}
+            expanded={expanded.has(index)}
             disabled={disabled}
             t={t}
             contextWindow={{
@@ -371,14 +384,22 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
             }}
             onFieldChange={(field, value) => { patch(index, { [field]: value }) }}
             onChange={(next) => { onChange(models.map((row, at) => at === index ? next : row)) }}
-            onToggle={() => { rowState.toggle(index) }}
+            onToggle={() => { toggleExpanded(index) }}
             onRemove={() => {
               onChange(models.filter((_model, at) => at !== index))
-              rowState.forget(new Set([index]))
+              setExpanded((current) => {
+                const next = new Set<number>()
+                for (const at of current) {
+                  if (at < index) next.add(at)
+                  else if (at > index) next.add(at - 1)
+                }
+                return next
+              })
+              setEditing(current => reindexOnRemove(current, index))
             }}
           />
         ))}
-      </AnimatedRows>
+      </div>
       <button
         type="button"
         className={styles['addModelButton']}
@@ -399,14 +420,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         footer={(
           <>
             <Button variant="outline" onClick={closePicker}>{t('cancel')}</Button>
-            <Button
-              variant="outline"
-              disabled={emptiesList}
-              title={emptiesList ? t('fetchKeepOne') : undefined}
-              onClick={adoptPicked}
-            >
-              {t('fetchAdopt')}
-            </Button>
+            <Button variant="outline" onClick={adoptPicked}>{t('fetchAdopt')}</Button>
           </>
         )}
       >
@@ -437,7 +451,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                   <label className={styles['candidateLabel']}>
                     <input
                       type="checkbox"
-                      checked={isPicked(candidate.id)}
+                      checked={picked.has(candidate.id)}
                       onChange={() => { toggle(candidate.id) }}
                     />
                     <span className={styles['candidateId']} title={candidate.name ?? candidate.id}>

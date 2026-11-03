@@ -11,14 +11,15 @@
 - button "Copy"
 - text: Running
 - button "Ask question waiting"
-- status: Deep diving
-- text: "Deep diving for {{duration}} ··· Interjection: include the word BANANA in your final reply."
+- text: "Interjection: include the word BANANA in your final reply."
 - button "Copy"
+- status: Deep diving
+- text: Deep diving for {{duration}} ···
 - region "Ready to continue?":
   - text: Checkpoint
+  - heading "Ready to continue?" [level=2]
   - button "Collapse the question card" [expanded]
   - button "Dismiss all questions"
-  - heading "Ready to continue?" [level=2]
   - radiogroup:
     - radio "Yes": 1 Yes
     - radio "No": 2 No

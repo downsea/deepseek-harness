@@ -156,10 +156,8 @@
   color: var(--dsw-alias-label-primary-foreground);
 }
 
-@media (hover: hover) {
-  .primaryButton:hover:not(:disabled) {
-    background: var(--dsw-alias-button-primary-hover);
-  }
+.primaryButton:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
 }
 
 .secondaryButton,
@@ -169,15 +167,13 @@
   color: var(--dsw-alias-label-primary);
 }
 
-@media (hover: hover) {
-  .secondaryButton:hover:not(:disabled),
-  .addButton:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.secondaryButton:hover:not(:disabled),
+.addButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
 
-  .secondaryButton:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover-solid);
-  }
+.secondaryButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
 }
 
 .dangerButton {
@@ -197,10 +193,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .dangerButton:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover-danger);
-  }
+.dangerButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
 }
 
 /* Provider-row controls use the compact Button size. */
@@ -297,16 +291,10 @@
   cursor: help;
 }
 
+.helpButton:hover,
 .helpButton:focus-visible {
   color: var(--dsw-alias-label-primary);
   border-color: var(--dsw-alias-label-tertiary);
-}
-
-@media (hover: hover) {
-  .helpButton:hover {
-    color: var(--dsw-alias-label-primary);
-    border-color: var(--dsw-alias-label-tertiary);
-  }
 }
 
 .linkButton {
@@ -325,11 +313,9 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .linkButton:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover);
-    color: var(--dsw-alias-label-secondary);
-  }
+.linkButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .advancedHint {
@@ -450,10 +436,8 @@
   transform: rotate(45deg) translate(-1px, -1px);
 }
 
-@media (hover: hover) {
-  .customizedSummary:hover {
-    color: var(--dsw-alias-label-primary);
-  }
+.customizedSummary:hover {
+  color: var(--dsw-alias-label-primary);
 }
 
 .customizedBody {
@@ -464,7 +448,6 @@
 }
 
 .modelCatalog {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -507,7 +490,6 @@
 }
 
 .modelEntry {
-  position: relative;
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: var(--dsw-radius-lg);
   padding: 6px;
@@ -515,69 +497,9 @@
 
 .modelRow {
   display: grid;
-  grid-template-columns: auto minmax(0, 1.4fr) minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 6px;
-}
-
-.modelDragHandle:not(:disabled) {
-  cursor: grab;
-}
-
-.modelEntry[data-dragging] {
-  opacity: 0.5;
-}
-
-.modelDragPreview {
-  background: var(--dsw-alias-bg-module-platform);
-}
-
-/* Each row owns half of the 8px gap so native drops reach the insertion line. */
-.modelEntry::before,
-.modelEntry::after {
-  content: '';
-  position: absolute;
-  z-index: 1;
-  left: 0;
-  right: 0;
-  height: 4px;
-}
-
-.modelEntry::before {
-  top: -4px;
-}
-
-.modelEntry::after {
-  bottom: -4px;
-}
-
-.modelEntry[data-drop-target='before']::before,
-.modelEntry[data-drop-target='after']::after {
-  height: 12px;
-  background:
-    linear-gradient(
-      55deg,
-      transparent calc(50% - 1px),
-      var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
-      transparent calc(50% + 1px)
-    ) 0 0 / 5px 7px no-repeat,
-    linear-gradient(
-      125deg,
-      transparent calc(50% - 1px),
-      var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
-      transparent calc(50% + 1px)
-    ) 0 5px / 5px 7px no-repeat,
-    linear-gradient(
-      var(--dsw-alias-state-business-primary) 0 0
-    ) 4px 5px / calc(100% - 4px) 2px no-repeat;
-}
-
-.modelEntry[data-drop-target='before']::before {
-  top: -10px;
-}
-
-.modelEntry[data-drop-target='after']::after {
-  bottom: -10px;
 }
 
 /* Square, label-free affordances: the row's own inputs carry the meaning, so
@@ -596,11 +518,9 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .iconButton:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover);
-    color: var(--dsw-alias-label-primary);
-  }
+.iconButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
 }
 
 .iconButton:disabled {
@@ -609,11 +529,9 @@
 }
 
 /* The delete glyph keeps the danger tint the rest of the section uses. */
-@media (hover: hover) {
-  .iconButtonDanger:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover-danger);
-    color: var(--dsw-alias-state-error-primary);
-  }
+.iconButtonDanger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .modelAdvanced {
@@ -720,10 +638,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .addModelButton:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.addModelButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .input {
@@ -784,10 +700,8 @@ select.input {
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .keyToggle:hover:not(:disabled) {
-    color: var(--dsw-alias-label-primary);
-  }
+.keyToggle:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
 }
 
 .keyToggle:focus-visible {
@@ -826,14 +740,12 @@ select.input {
 }
 
 .deleteConfirm:not(:disabled) {
-  --dsh-button-outline-color: var(--dsw-alias-state-error-primary);
+  border-color: var(--dsw-alias-state-error-primary);
   color: var(--dsw-alias-state-error-primary);
 }
 
-@media (hover: hover) {
-  .deleteConfirm:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover-danger);
-  }
+.deleteConfirm:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
 }
 
 /* Icon-button label seat: named for assistive tech and for the tests that

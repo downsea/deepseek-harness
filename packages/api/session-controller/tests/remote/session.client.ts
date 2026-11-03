@@ -12,7 +12,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   SessionAssistantStreamBaseline, SessionFollowFrame, SessionFollowRequest,
-  SessionEventsPage, SessionPageRequest,
+  SessionPage, SessionPageRequest,
 } from '../../src/types.ts'
 import { entries, historyValue } from '../event-script.client.ts'
 import { followSnapshot, pageThrough } from './history.client.ts'
@@ -24,7 +24,7 @@ export const FOLLOW = 'session/follow'
 export const PAGE = 'session/page'
 
 /** A history answer as the Host returns it, possibly still pending. */
-export type HistoryAnswer = RemoteResult<SessionEventsPage> | Promise<RemoteResult<SessionEventsPage>>
+export type HistoryAnswer = RemoteResult<SessionPage> | Promise<RemoteResult<SessionPage>>
 /** A history answer, or a function of the request that produces one. */
 export type HistorySource<Request> = HistoryAnswer | ((request: Request) => HistoryAnswer)
 
@@ -43,7 +43,7 @@ export function err<T>(error: RemoteFailure): RemoteResult<T> {
  * @param hasMore - whether older history exists.
  * @returns the success result.
  */
-export function history(events: readonly SessionEvent[], hasMore = false): RemoteResult<SessionEventsPage> {
+export function history(events: readonly SessionEvent[], hasMore = false): RemoteResult<SessionPage> {
   return ok(historyValue(events, hasMore))
 }
 
@@ -102,11 +102,11 @@ export function followScript(
  */
 export function pageRule(
   history: HistorySource<SessionPageRequest>,
-): UnaryRuleFn<readonly [SessionPageRequest], Promise<RemoteResult<SessionEventsPage>>> {
+): UnaryRuleFn<readonly [SessionPageRequest], Promise<RemoteResult<SessionPage>>> {
   return async (page) => {
     const result = await answer(history, page)
     if (!result.ok) return result
-    return ok(pageThrough(result.value, page.throughSeq ?? result.value.cursor))
+    return ok(pageThrough(result.value, page.throughSeq))
   }
 }
 
@@ -144,12 +144,12 @@ export const sessionWorld: RemoteTable = {
       attachment: { attachmentId: 'a', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
       data: 'AA==',
     }),
-    'session/page': pageRule(ok({ cursor: -1, records: [], hasMore: false })),
+    'session/page': pageRule(ok({ records: [], hasMore: false })),
     'session/projections': ok({ kind: 'sequenced', asOfSeq: -1, values: { subagentCatalog: [] } }),
     'subagents/prompt': ok({ messageId: 'fake-message' }),
     'subagents/interruptByParent': ok({ accepted: true }),
   },
   stream: {
-    'session/follow': followScript(ok({ cursor: -1, records: [], hasMore: false })),
+    'session/follow': followScript(ok({ records: [], hasMore: false })),
   },
 }

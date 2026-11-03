@@ -1,4 +1,3 @@
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -30,7 +29,7 @@ it('loads Desktop Office CLI paths and removes them on disposal', async () => {
     expect('default' in desktopOffice).toBe(false)
     expect(ctx.loader.unwrapExports(desktopOffice)).toBe(desktopOffice)
     const modules = new Map<string, unknown>([
-      ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime], ['toolExecutor', NativeToolExecutor],
+      ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime],
       ['skills', SkillRegistry], ['office', desktopOffice],
     ])
     ctx.loader.internal = {

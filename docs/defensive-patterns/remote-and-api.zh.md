@@ -93,18 +93,16 @@ type SessionRemote = { list(): ...; rename(id: string): ... }   // hand-written 
 
 ```ts ignore-check
 // packages/workspace/<feature>/src/index.ts: the rule lives with the feature it serves.
-export const durablePageProjectionDefinition = {
+ctx.sessionProjections.register({
   key: 'durablePage',
   stateSchema: durablePageState,
   init: () => ({ durable: false }),
   apply: applyDurablePage,
   stateVersion: 1,
-}
-await ctx.sessionProjections.register(durablePageProjectionDefinition)
+})
 
 // packages/api/session-controller: generic orchestration reads the projected value.
-const durablePage = await ctx.sessionProjections.register(durablePageProjectionDefinition)
-const { durable } = durablePage.stateOf(session)
+const { durable } = ctx.sessionProjections.stateOf(session, 'durablePage')
 ```
 
 反例把这条规则的决定放进共享层：

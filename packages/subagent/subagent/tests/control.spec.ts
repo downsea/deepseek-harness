@@ -1,4 +1,3 @@
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { mountWorkingDirectoryFixture } from './working-directory-fixture.ts'
 // The browser-facing prompt and interrupt controls and their stable failure
 // codes. Session Controller owns catalog observation and transport.
@@ -35,7 +34,6 @@ const IMAGE_REF = { attachmentId: 'att', mediaType: 'image/png', bytes: 2, width
 async function bench(live?: Record<string, { status: 'running' | 'idle' }>) {
   const ctx = new Context()
   await mountWorkingDirectoryFixture(ctx)
-  if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SubagentRuntime)
   if (live !== undefined) {
     ctx.provide('agents', {

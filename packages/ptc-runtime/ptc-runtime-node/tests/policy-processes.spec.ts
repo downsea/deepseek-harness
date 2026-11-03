@@ -83,7 +83,7 @@ it('waits for all processes on owner unload and removes its policy observer', as
     await entered.promise
     cleanup.resolve(undefined)
     await disposed
-    expect(() => { setSandboxMode(session, 'read-only') }).toThrow('cannot append outside a SessionStore')
+    setSandboxMode(session, 'read-only')
   } finally { cleanup.resolve(undefined); await disposed }
 })
 

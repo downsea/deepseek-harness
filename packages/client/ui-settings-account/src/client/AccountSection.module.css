@@ -109,10 +109,8 @@
   background: transparent;
 }
 
-@media (hover: hover) {
-  .linkButton:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.linkButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .linkButton:focus-visible {
@@ -128,10 +126,8 @@
   text-underline-offset: 3px;
 }
 
-@media (hover: hover) {
-  .unavailableLink:hover {
-    color: var(--dsw-alias-label-primary);
-  }
+.unavailableLink:hover {
+  color: var(--dsw-alias-label-primary);
 }
 
 .unavailableLink:focus-visible {
@@ -147,10 +143,8 @@
   border-color: transparent;
 }
 
-@media (hover: hover) {
-  .primary:hover {
-    background: var(--dsw-alias-button-primary-hover);
-  }
+.primary:hover {
+  background: var(--dsw-alias-button-primary-hover);
 }
 
 .signedOut {

@@ -1,5 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, it } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -9,8 +7,7 @@ import LlmRuntime, { createUserMessage, ToolCallId, LlmAdapter  } from '@deepsee
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 const testToolSignal = new AbortController().signal
@@ -28,7 +25,6 @@ async function harness(adapter: LlmAdapter): Promise<Harness> {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
   const agentsFiber = await ctx.plugin(AgentRegistry)
   const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -130,7 +126,6 @@ describe('AgentLoop initiator scope', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
@@ -317,7 +312,7 @@ describe('AgentLoop initiator scope', () => {
       },
     }))
 
-    const direct = await executeToolFixture(ctx, {
+    const direct = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('direct'),
       name: 'agentless-probe',
@@ -392,7 +387,6 @@ describe('AgentLoop initiator scope', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)

@@ -1,4 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -16,7 +15,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import * as tool from '../src/index.ts'
+import * as tool from '../src/list-agents.ts'
 import { parkParent } from './park-parent.ts'
 import { TestSessionQuery } from './test-session-query.ts'
 
@@ -92,7 +91,7 @@ function callTool(
   agent?: unknown,
   signal: AbortSignal = testToolSignal,
 ) {
-  return executeToolFixture(ctx, {
+  return ctx.tools.execute({
     signal,
     callId: ToolCallId(`call-${++calls}`),
     name,
@@ -108,7 +107,7 @@ async function waitNoActivation(ctx: Context, childId: SessionId): Promise<void>
   }, { timeout: 5_000 })
 }
 
-describe('list_agents', () => {
+describe('dsh-tool-subagent-control/list-agents', () => {
   it('lists a settled caller-delivery local child in both scopes', async () => {
     const { ctx, parent } = await setup([textResponse('private result')])
     const started = await ctx.subagents.startActivation({
@@ -284,7 +283,7 @@ describe('list_agents', () => {
 
   it('has the namespace-plugin export shape', () => {
     expect('default' in tool).toBe(false)
-    expect(tool.name).toBe('tool-subagent-control')
+    expect(tool.name).toBe('tool-subagent-list-agents')
     expect(tool.inject).toEqual(['tools', 'subagents', 'agents'])
     expect(typeof tool.apply).toBe('function')
   })

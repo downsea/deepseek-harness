@@ -1,4 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 // Web e2e scenario: fresh round trip. A real chromium types a prompt into the
 // real composer; the wire, Remote gateway, agent loop, and the REAL bash tool (echo
 // in the temp workspace) all run; the model adapter is dsh-llm-replay (keyless)
@@ -131,7 +130,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
             key: 'Enter', code: 'Enter', bubbles: true, cancelable: true,
           }))
           // sendSession registered its paint yield first. This frame observes the
-          // composer holding the message while the Host has not accepted it yet.
+          // committed echo while admission remains queued on the following task.
           await new Promise<void>((resolve) => { requestAnimationFrame(() => { resolve() }) })
           const echo = document.querySelector<HTMLElement>('[data-submission-echo]')
           return [
@@ -145,10 +144,6 @@ describe('web e2e: fresh round trip through the real assembly', () => {
       expect(await response.json()).toMatchObject({ result: { ok: true, value: { accepted: true } } })
       accepted = true
       await compareOrRefreshGolden(ECHO_EXPECTED, echoSnapshot, MODE)
-      // Acceptance publishes the echo and clears the composer; maintenance keeps the Turn from starting.
-      await page.locator('[data-submission-echo]', { hasText: PROMPT }).waitFor()
-      await expect.poll(() => input.textContent()).toBe('')
-      expect(await input.getAttribute('contenteditable')).toBe('true')
       const row = page.getByRole('tree', { name: 'Sessions', exact: true })
         .locator('[role="treeitem"][aria-selected="true"]')
       await expect.poll(() => row.getAttribute('draggable'), { timeout: 5_000 }).toBe('true')
@@ -254,7 +249,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
         setup: agentCtx => probe.ctx.agentPresets.mount(agentCtx).then(() => undefined),
       })
       try {
-        const result = await executeToolFixture(probe.ctx, {
+        const result = await probe.ctx.tools.execute({
           signal: AbortSignal.timeout(5_000),
           callId: ToolCallId('web-url-probe'),
           name: 'bash',

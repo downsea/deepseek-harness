@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import ClaudeCodeMods, { defineMod } from '../src/index.ts'
 
@@ -34,11 +32,7 @@ describe('defineMod', () => {
     const ctx = new Context()
     fibers.push(ctx.fiber)
     provideWorkingDirectoryFixture(ctx)
-    const bridge = ctx.plugin(ClaudeCodeMods, {})
-    expect(ctx.get('claudeCodeMods')).toBeUndefined()
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(AgentRegistry)
-    await bridge
+    await ctx.plugin(ClaudeCodeMods, {})
     const fiber = await ctx.plugin(plugin, { history: 3 })
     await fiber.await()
     expect(seen).toEqual([{ history: 3, unit: 'tokens' }])
@@ -58,8 +52,6 @@ describe('defineMod', () => {
     const ctx = new Context()
     fibers.push(ctx.fiber)
     provideWorkingDirectoryFixture(ctx)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(AgentRegistry)
     await ctx.plugin(ClaudeCodeMods, {})
     const fiber = ctx.plugin(slow, {})
     await vi.waitFor(() => { expect(release).toBeDefined() })
@@ -77,8 +69,6 @@ describe('defineMod', () => {
     const ctx = new Context()
     fibers.push(ctx.fiber)
     provideWorkingDirectoryFixture(ctx)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(AgentRegistry)
     await ctx.plugin(ClaudeCodeMods, {})
     const fiber = await ctx.plugin(bare, {})
     await fiber.await()

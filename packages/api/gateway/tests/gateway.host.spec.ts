@@ -153,7 +153,7 @@ class FakeConnectionService extends Service {
 
 function fakeHttpServer(routes: WebRoute[]): Pick<WebServer, 'register' | 'tapIndex' | 'port'> {
   return {
-    register(route: WebRoute) {
+    register(route) {
       if (routes.some(candidate => candidate.kind === route.kind && candidate.path === route.path)) {
         throw new Error(`duplicate route ${route.path}`)
       }

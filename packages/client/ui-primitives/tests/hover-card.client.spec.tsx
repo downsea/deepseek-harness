@@ -5,10 +5,7 @@ import { HoverCard, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { POINTER_GRACE_MS } from '../src/pointer-grace.ts'
 
 afterEach(cleanup)
-beforeEach(() => {
-  vi.useFakeTimers()
-  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(any-hover: hover)' }))
-})
+beforeEach(() => { vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 /** Anchor wrapper rect: the card positions from this (jsdom rects are all-zero by default). */
@@ -57,28 +54,6 @@ function installClipboard(writeText: (text: string) => Promise<void>): () => voi
 }
 
 describe('HoverCard', () => {
-  it.each([false, true])('opens mouse previews only when a pointer can hover: %s', (canHover) => {
-    vi.stubGlobal('matchMedia', () => ({ matches: canHover }))
-    const { wrapper } = mount()
-    const event = new Event('pointerover', { bubbles: true })
-    Object.defineProperty(event, 'pointerType', { value: 'mouse' })
-    fireEvent(wrapper, event)
-    act(() => { vi.advanceTimersByTime(1000) })
-    expect(screen.queryByText('card body') !== null).toBe(canHover)
-  })
-
-  it.each(['compact', 'preview'] as const)('does not open a %s card when a touch enters the anchor', (variant) => {
-    const { wrapper } = mount({ variant })
-    const event = new Event('pointerover', { bubbles: true })
-    Object.defineProperty(event, 'pointerType', { value: 'touch' })
-    fireEvent(wrapper, event)
-    act(() => { vi.advanceTimersByTime(1000) })
-    expect(screen.queryByText('card body')).toBeNull()
-    fireEvent.pointerEnter(wrapper)
-    act(() => { vi.advanceTimersByTime(500) })
-    expect(screen.getByText('card body')).toBeTruthy()
-  })
-
   it.each(['disabled', 'unmounted'] as const)('keeps its preview mounted while a nested tooltip shows and is then %s', (released) => {
     const markup = (state: 'active' | 'disabled' | 'unmounted') => (
       <HoverCard
@@ -93,7 +68,7 @@ describe('HoverCard', () => {
     const view = render(markup('active'))
     fireEvent.pointerEnter(screen.getByText('row').parentElement as HTMLElement)
     act(() => { vi.advanceTimersByTime(500) })
-    fireEvent.pointerEnter(screen.getByRole('button', { name: 'action' }))
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'action' }))
     expect(screen.getByRole('tooltip').textContent).toBe('Create')
     const card = screen.getByText('card body')
     expect(card.isConnected).toBe(true)
@@ -113,7 +88,7 @@ describe('HoverCard', () => {
     fireEvent.pointerEnter(screen.getByText('row').parentElement as HTMLElement)
     act(() => { vi.advanceTimersByTime(500) })
     const card = screen.getByText('card body')
-    fireEvent.pointerEnter(screen.getByRole('button', { name: 'card action' }))
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'card action' }))
     expect(card.isConnected).toBe(true)
     expect(screen.getByRole('tooltip').textContent).toBe('Details')
     act(() => { vi.advanceTimersByTime(1000) })
@@ -129,7 +104,7 @@ describe('HoverCard', () => {
     expect(screen.queryByText('card body')).toBeNull()
     act(() => { vi.advanceTimersByTime(1) })
     const card = screen.getByText('card body').parentElement as HTMLElement
-    expect(card.parentElement?.parentElement).toBe(document.body)
+    expect(card.parentElement).toBe(document.body)
     expect(card.style.left).toBe('208px')
     expect(card.style.top).toBe('40px')
   })
@@ -243,7 +218,7 @@ describe('HoverCard', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('keeps previews clear of the frame top strip except below an anchor inside it', () => {
+  it('keeps previews below the desktop frame clearance', () => {
     const prior = document.documentElement.style.getPropertyValue('--dsh-frame-top-clearance')
     const priority = document.documentElement.style.getPropertyPriority('--dsh-frame-top-clearance')
     document.documentElement.style.setProperty('--dsh-frame-top-clearance', '100px')
@@ -258,10 +233,6 @@ describe('HoverCard', () => {
       fireEvent(window, new Event('resize'))
       expect(card.style.top).toBe('120px')
       expect(card.style.maxHeight).toBe('322px')
-      // An anchor inside the top strip keeps its preview directly below it.
-      wrapper.getBoundingClientRect = () => DOMRect.fromRect({ x: 100, y: 10, width: 600, height: 32 })
-      fireEvent(window, new Event('resize'))
-      expect(card.style.top).toBe('50px')
     } finally {
       if (prior === '') document.documentElement.style.removeProperty('--dsh-frame-top-clearance')
       else document.documentElement.style.setProperty('--dsh-frame-top-clearance', prior, priority)
@@ -639,7 +610,6 @@ describe('HoverCard', () => {
 })
 
 it('opens inline previews only for keyboard focus and closes when focus leaves the anchor', () => {
-  vi.stubGlobal('matchMedia', () => ({ matches: false }))
   const anchor = <><button>first</button><button>second</button></>
   const view = render(<HoverCard inline anchor={anchor} content={<span>thumbnail</span>} />)
   const first = screen.getByRole('button', { name: 'first' })

@@ -400,27 +400,18 @@ describe('first snapshots', () => {
     expect(REMOTE_ACCESS_SNAPSHOT_KEY).toBe('__DSH_REMOTE_ACCESS__')
   })
 
-  it('injects the access snapshot of the Peer each index speaks for', async () => {
-    const { ctx, access } = await setup()
-    const policy = new GuestPolicy()
-    policy.hold(GUEST, { role: READER, resource: GLOBAL })
-    access.registerPolicy('test-guest', policy)
-    const render = (principal: Principal): IndexInjection[] => {
+  it('injects the owner baseline into every index the webServer renders', async () => {
+    const { ctx } = await setup()
+    const render = (): IndexInjection[] => {
       const table: IndexInjection[] = []
-      ctx.emit('webserver/index-inject', table, new Peer(ctx, { principal }))
+      ctx.emit('webserver/index-inject', table)
       return table
     }
-    expect(render(OWNER)).toEqual([])
+    expect(render()).toEqual([])
     ctx.provide('webServer', {} as Context['webServer'])
     await vi.waitFor(() => {
-      expect(render(OWNER)).toEqual([{ kind: 'global', name: '__DSH_REMOTE_ACCESS__', value: { type: 'baseline', owner: true } }])
+      expect(render()).toEqual([{ kind: 'global', name: '__DSH_REMOTE_ACCESS__', value: { type: 'baseline', owner: true } }])
     })
-    expect(render(GUEST)).toEqual([{ kind: 'global', name: '__DSH_REMOTE_ACCESS__', value: {
-      type: 'baseline', owner: false, grants: [{ resource: GLOBAL, actions: ['notes/read', 'notes/rooms', 'notes/write'] }],
-    } }])
-    // A grant change reaches the next render.
-    policy.hold(GUEST)
-    expect(render(GUEST)).toEqual([{ kind: 'global', name: '__DSH_REMOTE_ACCESS__', value: { type: 'baseline', owner: false, grants: [] } }])
   })
 
   it('lists per bound resource the endpoint actions decide() allows there without arguments, and no grant where none is allowed', async () => {

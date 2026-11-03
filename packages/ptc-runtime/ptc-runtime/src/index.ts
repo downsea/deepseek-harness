@@ -5,7 +5,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { PtcProgramFormat, PtcRunRequest, PtcRunResult, PtcRunSpec } from './types.ts'
+import type { PtcRunRequest, PtcRunResult, PtcRunSpec } from './types.ts'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 
 export type {
@@ -13,7 +13,6 @@ export type {
   PtcBindingFunction,
   PtcBindingNamespace,
   PtcJsonValue,
-  PtcProgramFormat,
   PtcRunFailure,
   PtcRunRequest,
   PtcRunResult,
@@ -109,7 +108,7 @@ export abstract class PtcRuntime extends Service {
    * generates language-specific presentation (typed SDK stubs, usage
    * instructions) switches on it and fails loud on a language it cannot
    * present. Well-known values: `'typescript'` and `'python'`, those
-   * `dsh-tool-executor-ptc` presents; the TypeScript backend is released, the Python
+   * `dsh-tools` presents; the TypeScript backend is released, the Python
    * backend is experimental and private (not published).
    */
   abstract readonly language: string
@@ -123,10 +122,7 @@ export abstract class PtcRuntime extends Service {
   abstract readonly isolation: string
 
   /** Source evaluation form, independent of whether the provider retains state for an owner. */
-  get programFormat(): PtcProgramFormat { return 'function-body' }
-
-  /** Whether this provider retains program memory across runs for the same stateOwner. */
-  get retainsState(): boolean { return false }
+  get programFormat(): 'function-body' | 'repl' { return 'function-body' }
 
   /**
    * Release an owner's retained environment and await its execution resources.

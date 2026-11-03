@@ -1,5 +1,5 @@
 /** Native file-action contribution shared by delivery cards and change review. */
-import type { PresentedOpenOutcome } from './present-open.ts'
+import type { PresentedOpenFailure } from './present-open.ts'
 import type { PresentedAction } from '../presented.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -13,8 +13,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         readonly actionUrl: string
         readonly available: boolean
         readonly pending: boolean
-        /** Execute the selected native action, publish status on the owning file surface, and report what settled. */
-        readonly onAction: (action: PresentedAction, application?: string) => Promise<PresentedOpenOutcome>
+        /** Execute the selected native action and publish status on the owning file surface. */
+        readonly onAction: (action: PresentedAction, application?: string) => Promise<PresentedOpenFailure>
       }
     }
     /** The same file actions owned by a changed-file review tab. */

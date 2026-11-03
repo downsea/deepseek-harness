@@ -85,14 +85,9 @@
   cursor: pointer;
 }
 
+.button:hover,
 .button:focus-visible {
   background: var(--dsw-alias-interactive-bg-hover);
-}
-
-@media (hover: hover) {
-  .button:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
 }
 
 .button:disabled {

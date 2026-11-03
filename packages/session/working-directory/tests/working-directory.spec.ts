@@ -1,4 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -346,7 +345,7 @@ describe('Session working directories', () => {
     await mkdir(join(f.root, 'child'))
     const fiber = f.ctx.plugin(WorkingDirectoryTool)
     await fiber
-    const execute = (arguments_: { cd?: string }, withAgent = true) => executeToolFixture(f.ctx, {
+    const execute = (arguments_: { cd?: string }, withAgent = true) => f.ctx.tools.execute({
       name: 'working_directory', callId: ToolCallId('directory-call'), arguments: arguments_,
       signal: new AbortController().signal, ...withAgent ? { agent: f.agent } : {},
     })

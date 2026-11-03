@@ -41,11 +41,9 @@
   font: var(--dsw-font-xxs-12);
 }
 
-@media (hover: hover) {
-  .toggle:hover {
-    color: var(--dsw-alias-label-primary);
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.toggle:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .toggle[aria-pressed='true'] {
@@ -90,15 +88,10 @@
   display: none;
 }
 
+.control:hover:not(:disabled),
 .control[aria-checked='true'],
 .control[aria-pressed='true'] {
   color: var(--dsw-alias-label-primary);
-}
-
-@media (hover: hover) {
-  .control:hover:not(:disabled) {
-    color: var(--dsw-alias-label-primary);
-  }
 }
 
 .control:focus-visible {
@@ -157,11 +150,9 @@
   font: var(--dsw-font-xxs-12);
 }
 
-@media (hover: hover) {
-  .action:hover {
-    color: var(--dsw-alias-label-primary);
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.action:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .action:focus-visible {
@@ -189,10 +180,8 @@
   background: var(--dsw-alias-bg-layer-2);
 }
 
-@media (hover: hover) {
-  .search:hover {
-    border-color: var(--dsw-alias-label-caption);
-  }
+.search:hover {
+  border-color: var(--dsw-alias-label-caption);
 }
 
 .search:focus-within {

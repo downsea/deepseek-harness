@@ -1,4 +1,4 @@
-// Actor-owned native identities, scoped AX snapshots and desktop operations.
+// Actor-owned native identities, scoped AX snapshots and synchronous desktop operations.
 import Foundation
 import Dispatch
 import ApplicationServices
@@ -78,21 +78,16 @@ actor AXWorker {
     private let cancellation: CancellationLatch
     private let axTimeout: Float
     private let textEventInterval: Double
-    private let maxClickHoldMs: Int
-    private let sessionState: @Sendable () -> Bool?
     private var access: AXAccess?
     private var keyboard: KeyboardInput?
     private var pointer: WindowPointerInput?
     private var hovers: [String: AXHover] = [:]
     private var closed = false
 
-    init(cancellation: CancellationLatch, axTimeout: Float, textEventInterval: Double, maxClickHoldMs: Int,
-         sessionState: @escaping @Sendable () -> Bool? = NativePlatform.sessionLocked) {
+    init(cancellation: CancellationLatch, axTimeout: Float, textEventInterval: Double) {
         self.cancellation = cancellation
         self.axTimeout = axTimeout
         self.textEventInterval = textEventInterval
-        self.maxClickHoldMs = maxClickHoldMs
-        self.sessionState = sessionState
     }
     private func identifier(_ kind: String) throws -> String {
         guard generation < UInt64.max else { throw NativeFailure(code: "NATIVE_ERROR", message: "Native identity space exhausted") }
@@ -115,7 +110,7 @@ actor AXWorker {
         return (key, mouse)
     }
     private func observeSession() -> Bool? {
-        let state = sessionState()
+        let state = NativePlatform.sessionLocked()
         if state != false { snapshots.removeAll(); observedWindowBounds.removeAll() }
         return state
     }
@@ -204,7 +199,7 @@ actor AXWorker {
     }
 
     func execute(_ method: String, params: RequestParameters, catalog: ApplicationCatalogSnapshot, installed: InstalledApplication? = nil,
-                 trace: ScreenshotTrace? = nil) async throws -> DriverOutcome {
+                 trace: ScreenshotTrace? = nil) throws -> DriverOutcome {
         try cancellation.check()
         guard !closed else { throw NativeFailure(code: "NATIVE_CLOSED", message: "Helper is closing") }
         let locked = observeSession()
@@ -348,7 +343,6 @@ actor AXWorker {
             }
             try ax().perform(selected, action)
         case "click", "hover":
-            let holdMs = params.contains("holdMs") ? try params.integer("holdMs", in: 0...maxClickHoldMs) : nil
             let button = try params.optionalString("mouseButton") ?? "left"
             let count = params.contains("clickCount") ? try params.integer("clickCount", in: 1...2) : 1
             guard button == "left" || (["right", "middle"].contains(button) && count == 1) else { throw RequestParameters.invalid("Unsupported mouse button or click count") }
@@ -362,7 +356,7 @@ actor AXWorker {
                 hoverElement = selected
                 if method == "click" {
                     let names = try ax().actions(selected)
-                    let action: String? = holdMs != nil || !modifiers.isEmpty ? nil : button == "right" && names.contains("AXShowMenu") ? "AXShowMenu"
+                    let action: String? = !modifiers.isEmpty ? nil : button == "right" && names.contains("AXShowMenu") ? "AXShowMenu"
                         : (button == "left" && count == 1 ? (names.contains("AXPress") ? "AXPress" : names.contains("AXPick") ? "AXPick" : nil) : nil)
                     if let action {
                         try ax().perform(selected, action)
@@ -393,7 +387,7 @@ actor AXWorker {
                 }
                 return .hover(route, point)
             }
-            try await inputs().1.click(in: route, at: point, button: button, count: count, modifiers: modifiers, holdMs: holdMs)
+            try inputs().1.click(in: route, at: point, button: button, count: count, modifiers: modifiers)
         case "scroll", "drag":
             let id = try params.windowID()
             try coordinateSnapshot(handle, params, id)
@@ -429,25 +423,22 @@ actor AXWorker {
         return .object(value)
     }
     func finishLaunch(_ plan: ApplicationLaunch, pid: Int32) throws -> JSONValue {
-        do {
-            try cancellation.check()
-            guard case .pending(let app, let original)? = targets[plan.handle], app == plan.application, original == plan.authorization,
-                  try ApplicationAuthorization.describeInstalled(app) == original else {
-                throw NativeFailure(code: "STALE_APP", message: "Application selection changed during launch")
-            }
-            let identity = try NativePlatform.identity(pid)
-            let actual = try ApplicationAuthorization.describe(identity, name: app.name, expectedExecutablePath: app.executablePath)
-            if original["persistable"] == .bool(true), actual["id"] != original["id"] {
-                throw NativeFailure(code: "STALE_APP", message: "Launched application does not match the approved application identity")
-            }
-            targets[plan.handle] = .running(identity)
-            var value: [String: JSONValue] = ["appHandle": .string(plan.handle), "pid": .number(Double(pid)), "name": .string(app.name)]
-            if let bundleID = app.bundleID { value["bundleId"] = .string(bundleID) }
-            return .object(value)
-        } catch {
+        try cancellation.check()
+        guard case .pending(let app, let original)? = targets[plan.handle], app == plan.application, original == plan.authorization,
+              try ApplicationAuthorization.describeInstalled(app) == original else {
             forget(plan.handle)
-            throw error
+            throw NativeFailure(code: "STALE_APP", message: "Application selection changed during launch")
         }
+        let identity = try NativePlatform.identity(pid)
+        let actual = try ApplicationAuthorization.describe(identity, name: app.name, expectedExecutablePath: app.executablePath)
+        if original["persistable"] == .bool(true), actual["id"] != original["id"] {
+            forget(plan.handle)
+            throw NativeFailure(code: "STALE_APP", message: "Launched application does not match the approved signing identity")
+        }
+        targets[plan.handle] = .running(identity)
+        var value: [String: JSONValue] = ["appHandle": .string(plan.handle), "pid": .number(Double(pid)), "name": .string(app.name)]
+        if let bundleID = app.bundleID { value["bundleId"] = .string(bundleID) }
+        return .object(value)
     }
 
     func foregroundObservation(_ plan: ForegroundPlan) throws -> ForegroundObservation {

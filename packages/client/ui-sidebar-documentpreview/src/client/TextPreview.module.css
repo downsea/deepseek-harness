@@ -107,27 +107,8 @@
   padding: 0 10px;
 }
 
-/* A navigated line's mark: a band in the scrollport over the line, so renderer
-   re-renders such as syntax highlighting do not drop it. It holds briefly, then
-   fades out and removes itself. Reduced motion keeps the fade: it is an
-   opacity change, not movement, and its end removes the band. */
-.lineMark {
-  position: absolute;
-  left: 0;
-  background: var(--dsw-alias-interactive-bg-hover-accent);
-  pointer-events: none;
-  animation: line-mark-fade 2s ease-in forwards;
-}
-
-@keyframes line-mark-fade {
-  0%,
-  30% {
-    opacity: 1;
-  }
-
-  100% {
-    opacity: 0;
-  }
+.lineTarget {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* The failure with nothing read yet: the whole body, centred a little above
@@ -188,10 +169,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .retry:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.retry:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* The type's 16px sheet before the chip's text; the chip's title row centres
@@ -237,10 +216,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .action:hover {
-    background: var(--dsw-alias-bg-layer-3);
-  }
+.action:hover {
+  background: var(--dsw-alias-bg-layer-3);
 }
 
 /* The next page, asked for where the loaded text ends. */
@@ -258,11 +235,9 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .more:hover:not(:disabled) {
-    color: var(--dsw-alias-label-primary);
-    background: var(--dsw-alias-bg-layer-3);
-  }
+.more:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-3);
 }
 
 .more:disabled {
@@ -294,11 +269,9 @@
   height: 15px;
 }
 
-@media (hover: hover) {
-  .tool:hover {
-    color: var(--dsw-alias-label-primary);
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.tool:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .tool[data-textpreview-tool='auto-refresh'][aria-pressed='true'] {

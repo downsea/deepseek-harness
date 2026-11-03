@@ -1,28 +1,29 @@
 import assert from 'node:assert/strict'
 import type { Context } from '@deepseek-ai/cordis'
 import { projectToolUpdates } from '@deepseek-ai/dsh-llm'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 
 export const name = 'snapshot-dynamic-tool-updates'
 export const inject = ['tools']
 
-/** Activate a tool after reading, then disable it after use without changing prompt text. */
+/** Register a tool after reading, then remove it after use without changing prompt text. */
 export function apply(ctx: Context): void {
-  let active = false
-  ctx.tools.register(defineContentToolFixture({
-    name: 'snapshot_ping', description: 'Return pong once.', parameters: {},
-    async execute() { return [{ type: 'text', text: 'pong' }] },
-  }), { when: async () => active })
+  let removeTool: (() => void) | undefined
   let requests = 0
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const downstream = await next()
     if (result.isError) return downstream
     switch (exec.name) {
       case 'read':
-        active = true
+        removeTool = ctx.tools.register(defineContentToolFixture({
+          name: 'snapshot_ping',
+          description: 'Return pong once.',
+          parameters: {},
+          async execute() { return [{ type: 'text', text: 'pong' }] },
+        }))
         break
       case 'snapshot_ping':
-        active = false
+        removeTool?.()
         break
     }
     return downstream

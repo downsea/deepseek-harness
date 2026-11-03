@@ -9,7 +9,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
-import { registerTimedAskUser, skippedAnswerGuidance } from './timed.ts'
+import { registerTimedAskUser } from './timed.ts'
 import '@deepseek-ai/dsh-user-questions'
 
 /** Cordis row selecting the tool schema and its default foreground wait. */
@@ -28,8 +28,7 @@ export const Config: z<Config> = z.object({
 export const name = 'tool-ask-user'
 export const inject = ['tools', 'userQuestions']
 
-const description = 'Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. '
-  + skippedAnswerGuidance
+const description = 'Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding.'
 
 export function apply(ctx: Context, config: Config = {}): void {
   if (config.mode === 'timed') {

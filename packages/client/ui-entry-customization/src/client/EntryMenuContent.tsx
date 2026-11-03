@@ -1,8 +1,8 @@
-/** Folded Conversation Views, plugin discovery while reachable, and creation. */
+/** Folded Conversation Views and plugin discovery and creation actions. */
 import {
   IconCheckOutlineRegular, IconPluginPinwheelOutlineRegular, IconPlusOutlineRegular, MenuItemButton,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import css from './EntryMenu.module.css'
 
@@ -13,10 +13,6 @@ export type EntryRegion = 'sidebar' | 'conversation' | 'rightbar'
 export interface EntryMenuInjected {
   /** Region of this registration; selects analytics attributes and the Creator prompt. */
   readonly region: EntryRegion
-  readonly hooks: {
-    /** Whether the Plugins page navigation service is present; the discovery row shows only while it is. */
-    readonly pluginNavigation: HostObservable<boolean>
-  }
   /** Open the Plugins main list. */
   readonly browsePlugins: () => void
   /** Start a Creator draft with this region's prompt without sending it. */
@@ -33,10 +29,9 @@ type EntryMenuContentProps = PropsRuntime<'sidebar.panellist.actions'>
  * @returns Menu rows for the region's More menu.
  */
 export function EntryMenuContent({
-  entries, onOpen, region, onDismiss, usePluginNavigation, browsePlugins, createPlugin, t,
+  entries, onOpen, region, onDismiss, browsePlugins, createPlugin, t,
 }: EntryMenuContentProps) {
   const moreEntries = region === 'conversation' ? entries : []
-  const browsable = usePluginNavigation(present => present)
   return <>
     {moreEntries.map(entry => <MenuItemButton key={entry.id} current={entry.active === true}
       onSelect={() => { onDismiss(); onOpen(entry.id) }}>
@@ -45,12 +40,11 @@ export function EntryMenuContent({
         {entry.active === true && <IconCheckOutlineRegular size={16} className={css.activeMark} />}
       </span>
     </MenuItemButton>)}
-    {browsable && <MenuItemButton separatorBefore={moreEntries.length > 0} icon={<IconPluginPinwheelOutlineRegular size={16} />}
+    <MenuItemButton separatorBefore={moreEntries.length > 0} icon={<IconPluginPinwheelOutlineRegular size={16} />}
       onSelect={() => { onDismiss(); browsePlugins() }}>
       {t('install')}
-    </MenuItemButton>}
-    <MenuItemButton icon={<IconPlusOutlineRegular size={16} />} separatorBefore={!browsable && moreEntries.length > 0}
-      onSelect={() => { onDismiss(); createPlugin() }}>
+    </MenuItemButton>
+    <MenuItemButton icon={<IconPlusOutlineRegular size={16} />} onSelect={() => { onDismiss(); createPlugin() }}>
       {t('create')}
     </MenuItemButton>
   </>

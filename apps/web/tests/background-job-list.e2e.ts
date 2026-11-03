@@ -1,4 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 // Session-header background jobs driven by a real `ctx.jobs` entry. No model
 // call is involved.
 import { readFile, writeFile } from 'node:fs/promises'
@@ -88,7 +87,7 @@ describe.skipIf(MODE === 'record')('web e2e: background job list', () => {
     const trigger = page.getByRole('button', { name: '1 background job running' })
     expect(await trigger.count()).toBe(0)
 
-    const started = await executeToolFixture(scaffold.ctx, {
+    const started = await scaffold.ctx.tools.execute({
       signal: new AbortController().signal,
       callId: ToolCallId('background-job-list-e2e'),
       name: 'bash',

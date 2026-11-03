@@ -1,15 +1,14 @@
 /**
- * URL validation, content-type classification, and charset resolution for the
- * local HTTP(S) fetch provider — the pure, network-free half. The provider's
- * `fetch()` composes these with transport (redirect following, byte caps,
- * decoding).
+ * URL validation and content-type classification for the local HTTP(S) fetch
+ * provider — the pure, network-free half. The provider's `fetch()` composes
+ * these with transport (redirect following, byte caps, decoding).
  *
  * @module @deepseek-ai/dsh-web-fetch-http/policy
  */
 
 import { WebError } from '@deepseek-ai/dsh-web'
 
-/** Maximum accepted request URL length enforced by the fetch provider. */
+/** Maximum accepted request URL length enforced by the public fetch provider. */
 export const WEB_FETCH_MAX_URL_LENGTH = 2048
 
 /** The body kinds this provider decodes. */
@@ -56,7 +55,8 @@ export function validateFetchUrl(input: string): URL {
 
 /**
  * Two URLs are same-origin when scheme, hostname, and port match. A redirect
- * that crosses origins is refused so each new origin requires a fresh tool call.
+ * that crosses origins is refused so each new origin requires a fresh tool call
+ * and public-address validation.
  *
  * @param a - one of the two URLs to compare.
  * @param b - the other URL to compare.
@@ -84,10 +84,14 @@ export function classifyContentType(contentType: string | null): FetchableKind |
 }
 
 /**
- * Extract the lower-cased `charset` parameter from a response `Content-Type`.
+ * Extract the `charset` parameter from a response `Content-Type`, lower-cased,
+ * or `undefined` when absent. The provider feeds this label to `TextDecoder`
+ * so a non-UTF-8 response is decoded with its declared encoding rather than
+ * silently mangled into replacement characters.
  *
- * @param contentType - the raw header, or `null` when absent.
- * @returns the charset parameter, or `undefined` when none is declared.
+ * @param contentType - the raw `Content-Type` header, or `null` when the
+ *   response carries none.
+ * @returns the lower-cased charset label, or `undefined` when none is declared.
  */
 export function parseCharset(contentType: string | null): string | undefined {
   const match = /;\s*charset\s*=\s*"?([^";]+)"?/i.exec(contentType ?? '')
@@ -95,31 +99,20 @@ export function parseCharset(contentType: string | null): string | undefined {
 }
 
 /**
- * Resolve the declared charset, defaulting to UTF-8 when absent. A malformed
- * comma- or whitespace-joined declaration containing a UTF-8 label uses a fatal
- * UTF-8 decoder; other unsupported declarations throw `WEB_UNSUPPORTED_CONTENT_TYPE`.
- * UTF-8 recovery is a preference, not proof of the original encoding.
+ * Build a `TextDecoder` for the declared charset, falling back to UTF-8 when
+ * none is declared. Throws {@link WebError} `WEB_UNSUPPORTED_CONTENT_TYPE` when
+ * the label is present but not a charset `TextDecoder` recognizes — better to
+ * fail loudly than return mojibake.
  *
- * @param charset - the declared charset parameter, or `undefined` to default.
- * @returns a decoder; callers must report fatal decoding failures and flush at
- *   EOF unless they deliberately truncated the bytes.
+ * @param charset - the declared charset label (from {@link parseCharset}), or
+ *   `undefined` to default to UTF-8.
+ * @returns a decoder for the declared (or defaulted) encoding.
  */
 export function decoderForCharset(charset: string | undefined): TextDecoder {
-  const declared = charset ?? 'utf-8'
+  if (charset === undefined) return new TextDecoder('utf-8')
   try {
-    return new TextDecoder(declared)
+    return new TextDecoder(charset)
   } catch (error: unknown) {
-    if (declared.split(/[\s,]+/).some(isUtf8Label)) return new TextDecoder('utf-8', { fatal: true })
-    throw new WebError(`unsupported charset "${declared}"`, 'WEB_UNSUPPORTED_CONTENT_TYPE', { cause: error })
-  }
-}
-
-/** Whether a label names UTF-8, including its standard aliases. */
-function isUtf8Label(label: string): boolean {
-  try {
-    return new TextDecoder(label).encoding === 'utf-8'
-  } catch (_error: unknown) {
-    // An unsupported label does not authorize UTF-8 recovery.
-    return false
+    throw new WebError(`unsupported charset "${charset}"`, 'WEB_UNSUPPORTED_CONTENT_TYPE', { cause: error })
   }
 }

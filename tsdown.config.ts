@@ -1,6 +1,7 @@
 import { globSync } from 'node:fs'
 import { defineConfig } from 'tsdown'
-import { decoratorPlugin } from './packages/typert/generator/lib/types/tsdown-plugin.js'
+import { typertPlugin } from './packages/typert/generator/lib/types/tsdown-plugin.js'
+import { WORKSPACE_TYPERT_FACES } from './scripts/typert-faces.ts'
 import { workspacePackageGlobs } from './scripts/workspace-package-globs.ts'
 
 function isBuildFaceClient(value: unknown): boolean {
@@ -11,7 +12,7 @@ function isBuildFaceClient(value: unknown): boolean {
 
 /**
  * The ordinary workspace build consumes JavaScript emitted by the Host
- * TypeScript project after source-only Typert generation. The Client pass selects packages that
+ * TypeScript project and runs Typert. The Client pass selects packages that
  * declare a browser bundle and lets their package-local configs emit both
  * their Node loader entry and browser artifact. `apps/desktop` bundles after
  * this pass (root package.json `build:lib:host`): its main bundle inlines
@@ -31,6 +32,6 @@ export default defineConfig(({ env }) => {
     fixedExtension: false,
     dts: false,
     clean: false,
-    plugins: client ? [] : [decoratorPlugin()],
+    plugins: client ? [] : [typertPlugin({ mode: 'workspace', faces: WORKSPACE_TYPERT_FACES })],
   }
 })

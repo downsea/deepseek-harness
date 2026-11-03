@@ -1,7 +1,5 @@
-/** Real SDK negotiation, subscription, and cancellation through the connection supervisor. */
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { z } from 'zod'
+/** Real SDK negotiation, subscription, and cancellation through the connection supervisor. */
 
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -27,7 +25,6 @@ async function connect(server: McpServer, options?: { resources: true }): Promis
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   const serving = serveStdio(() => server, { transport: serverTransport })
   mockTransport.mockReturnValue(clientTransport)
@@ -71,7 +68,7 @@ describe('modern MCP connections', () => {
       ['list_mcp_resources', { resources: [] }],
       ['list_mcp_resource_templates', { resourceTemplates: [] }],
     ] as const) {
-      const result = await executeToolFixture(ctx, {
+      const result = await ctx.tools.execute({
         name, arguments: { server: 'fixture' },
         callId: ToolCallId(name), signal: new AbortController().signal,
       })
@@ -79,14 +76,14 @@ describe('modern MCP connections', () => {
     }
     // console.debug writes stdout, which the ACP profile reserves for JSON-RPC.
     expect(debug).not.toHaveBeenCalled()
-    const read = await executeToolFixture(ctx, {
+    const read = await ctx.tools.execute({
       name: 'read_mcp_resource', arguments: { server: 'fixture', uri: 'memo://readme' },
       callId: ToolCallId('unsupported-resource-read'), signal: new AbortController().signal,
     })
     expect(read.isError).toBe(true)
     if (read.isError) expect(read.error.message).toContain('Method not found')
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(names)
-    const ping = await executeToolFixture(ctx, {
+    const ping = await ctx.tools.execute({
       name: 'mcp__fixture__ping', arguments: {},
       callId: ToolCallId('ping-after-resource-errors'), signal: new AbortController().signal,
     })
@@ -111,7 +108,7 @@ describe('modern MCP connections', () => {
     const ctx = await connect(server, { resources: true })
     for (const name of ['list_mcp_resources', 'list_mcp_resource_templates']) {
       for (const cursor of [undefined, 'opaque-page']) {
-        const result = await executeToolFixture(ctx, {
+        const result = await ctx.tools.execute({
           name, arguments: { server: 'fixture', ...cursor === undefined ? {} : { cursor } },
           callId: ToolCallId(name), signal: new AbortController().signal,
         })
@@ -119,7 +116,7 @@ describe('modern MCP connections', () => {
       }
     }
     expect(seen).toEqual([undefined, 'opaque-page', undefined, 'opaque-page'])
-    const read = await executeToolFixture(ctx, {
+    const read = await ctx.tools.execute({
       name: 'read_mcp_resource', arguments: { server: 'fixture', uri: 'memo://readme' },
       callId: ToolCallId('read-resource'), signal: new AbortController().signal,
     })
@@ -148,7 +145,7 @@ describe('modern MCP connections', () => {
     })
     const ctx = await connect(server)
     const controller = new AbortController()
-    const result = executeToolFixture(ctx, {
+    const result = ctx.tools.execute({
       callId: ToolCallId('cancel'), name: 'mcp__fixture__wait', arguments: {}, signal: controller.signal,
     })
     await entered.promise

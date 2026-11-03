@@ -1,9 +1,7 @@
 /** Host Schedule tests use real domain storage and an explicit Session resolver. */
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { Context, Service } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import { unsupportedModel, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { CreateSessionOptions } from '@deepseek-ai/dsh-session'
@@ -30,7 +28,6 @@ export function gatedScheduleBackend(
   traps: {
     putRecord?: (table: string, key: string) => Promise<void> | undefined
     deleteRecord?: (table: string, key: string) => Promise<void> | undefined
-    deleteRecords?: (table: string, keys: readonly string[]) => Promise<void> | undefined
   } = {},
 ): StorageBackend {
   const memory = new MemoryStorageBackend(pool)
@@ -51,10 +48,6 @@ export function gatedScheduleBackend(
             await traps.deleteRecord?.(table, key)
             await unit.deleteRecord(table, key)
           },
-          deleteRecords: async (table, keys) => {
-            await traps.deleteRecords?.(table, keys)
-            await unit.deleteRecords(table, keys)
-          },
           setGlobal: value => unit.setGlobal(value),
           close: () => unit.close(),
           ...(backup === undefined ? {} : { backupRecord: backup }),
@@ -74,17 +67,14 @@ export async function harness(options: {
   pool?: MemoryMediaPool
   backend?: StorageBackend
   direct?: true
-  sessionController?: false
   config?: Config
 } = {}) {
   const ctx = new Context()
   options.onContext?.(ctx)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(Storage)
   const pool = options.pool ?? new MemoryMediaPool()
   const backend = options.backend ?? new MemoryStorageBackend(pool)
@@ -97,7 +87,7 @@ export async function harness(options: {
     return async () => { await facility.closeAll(); unmount() }
   })
   const resolve = vi.fn<Context['sessionController']['resolveAgent']>(async () => { throw new Error('missing Session') })
-  if (options.sessionController !== false) ctx.provide('sessionController', { resolveAgent: resolve } as never)
+  ctx.provide('sessionController', { resolveAgent: resolve } as never)
   const flush = vi.fn(async () => {})
   ctx.on('session/flush', flush)
   // This fixture supplies flush behavior above; Schedule does not invoke persistence methods directly.
@@ -111,14 +101,7 @@ export async function harness(options: {
   } else {
     fiber = await ctx.plugin(ScheduleService, options.config)
   }
-  const resolveAgent = async (sessionId: SessionId): Promise<Agent> => {
-    const controller = ctx.get('sessionController')
-    if (controller === undefined) throw new Error('schedule: no Session activation provider')
-    const result = await controller.resolveAgent(sessionId)
-    if ('error' in result) throw result.error
-    return result.agent
-  }
-  return { ctx, service: ctx.schedule, pool, resolve, resolveAgent, flush, fiber }
+  return { ctx, service: ctx.schedule, pool, resolve, flush, fiber }
 }
 
 /**
@@ -142,8 +125,7 @@ export interface HarnessAgent extends Agent {
 export function agentFor(ctx: Context, id = 'original', meta?: CreateSessionOptions['meta']): HarnessAgent {
   const session = ctx.sessions.create(SessionId(id), meta === undefined ? undefined : { meta })
   return {
-    id: session.id, session, ctx: ctx.extend(), options: {}, status: 'idle', model: unsupportedModel(),
-    inbox: unsupportedInbox(),
+    id: session.id, session, ctx: ctx.extend(), options: {}, status: 'idle', inbox: unsupportedInbox(),
     send() {}, followup: vi.fn<(message: UserMessage) => void>(), steer() {}, inject() {}, cancel() {},
     whenIdle: async () => {}, runMaintenance: operation => operation(new AbortController().signal),
   }

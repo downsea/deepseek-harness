@@ -12,7 +12,7 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../cua/tsconfig.host.json"
+      "path": "../cua"
     },
     {
       "path": "../../subprocess/subprocess"

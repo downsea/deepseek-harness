@@ -41,8 +41,6 @@ export type AssistantBlock =
 /** A finalized user message. */
 export interface UserMessageNode {
   kind: 'user'
-  /** Durable identity, absent only in synthetic projections. */
-  messageId?: MessageId
   seq: number
   /** Unix epoch ms from the source session event. */
   time: number

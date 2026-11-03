@@ -7,7 +7,6 @@
  * removes it (HMR safety). The carrier and framework are exercised unmodified.
  */
 
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -33,10 +32,9 @@ async function harness(withTodoTool: boolean): Promise<Bench> {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(UserQuestionService)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(SessionProjectionRegistry)
   if (withTodoTool) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   const session = ctx.sessions.create()
   await ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)

@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { AgentOptions } from '@deepseek-ai/dsh-agent'
+import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   WebhookDeliveryId,
@@ -21,8 +21,9 @@ interface SessionHarness {
   readonly ctx: Context
   readonly calls: string[]
   readonly messages: unknown[]
-  readonly agentOptions: AgentOptions | undefined
+  readonly modelListeners: Map<string, unknown>
   readonly agent: unknown
+  markRequestHeader(): void
   readonly controller: AbortController
   readonly request: WebhookSessionRequest
 }
@@ -37,11 +38,13 @@ afterEach(() => {
 function harness(options: HarnessOptions = {}): SessionHarness {
   const calls: string[] = []
   const messages: unknown[] = []
-  let agentOptions: AgentOptions | undefined
+  const modelListeners = new Map<string, unknown>()
   const controller = new AbortController()
+  let requestHeader: object | undefined
   const session = {
     id: 'webhook-session',
     header: { cwd: '/workspace' },
+    requestHeader: () => requestHeader,
   }
   const agent = {
     id: 'webhook-session',
@@ -119,11 +122,15 @@ function harness(options: HarnessOptions = {}): SessionHarness {
       },
     },
     agents: {
-      async create(createOptions: { agentOptions: AgentOptions; setup?: (ctx: unknown, agent: unknown) => Promise<void> }) {
+      async create(createOptions: { setup?: (ctx: unknown, agent: unknown) => Promise<void> }) {
         calls.push('agent-create')
         if (options.failAt === 'agent') throw new Error('agent failed')
-        agentOptions = createOptions.agentOptions
-        await createOptions.setup?.({}, agent)
+        await createOptions.setup?.({
+          on(event: string, listener: unknown) {
+            modelListeners.set(event, listener)
+            return () => {}
+          },
+        }, agent)
         if (options.abortAt === 'agent') controller.abort(new Error('abort after agent'))
         return handle
       },
@@ -140,8 +147,9 @@ function harness(options: HarnessOptions = {}): SessionHarness {
     ctx: fake as unknown as Context,
     calls,
     messages,
-    get agentOptions() { return agentOptions },
+    modelListeners,
     agent,
+    markRequestHeader() { requestHeader = {} },
     controller,
     request: {
       workspacePath: '/workspace',
@@ -171,6 +179,22 @@ async function create(test: SessionHarness, request = test.request): Promise<voi
     request,
     test.controller.signal,
   )
+}
+
+/** Read the initial model-selection listener installed during Agent setup. */
+function modelRequestListener(test: SessionHarness): (
+  payload: unknown,
+  next: () => Promise<LlmCallConfig>,
+) => Promise<LlmCallConfig> {
+  const listener = test.modelListeners.get('agent/request')
+  if (typeof listener !== 'function') {
+    throw new Error('webhook Session did not install its initial model selection')
+  }
+  const request = listener as (
+    payload: unknown,
+    next: () => Promise<LlmCallConfig>,
+  ) => Promise<LlmCallConfig>
+  return (_payload, next) => request({ agent: test.agent }, next)
 }
 
 describe('webhook Session creation', () => {
@@ -207,15 +231,47 @@ describe('webhook Session creation', () => {
     const withoutCap = harness()
     await create(withoutCap, { ...withoutCap.request, model: { provider: 'p', model: 'm' } })
     expect(withoutCap.calls).not.toContain('default-model')
-    expect(withoutCap.agentOptions).toEqual({ provider: 'p', model: 'm' })
-    expect(test.agentOptions).toEqual({ provider: 'p', model: 'm', maxTokens: 10 })
+    await expect(modelRequestListener(withoutCap)(undefined, async () => ({
+      provider: 'p', model: 'm', reasoningEffort: ReasoningEffortId('inherited'),
+    }))).resolves.toEqual({ provider: 'p', model: 'm' })
   })
 
-  it('passes the default route and reasoning effort as initial Agent options', async () => {
+  it('preserves default reasoning until the first request header is durable', async () => {
     const test = harness()
     await create(test)
-    expect(test.agentOptions).toEqual({
-      provider: 'default-provider', model: 'default-model', reasoningEffort: 'high',
+    const request = modelRequestListener(test)
+
+    await expect(request(undefined, async () => ({
+      provider: 'other-provider',
+      model: 'default-model',
+      reasoningEffort: ReasoningEffortId('other-provider-effort'),
+    }))).resolves.toMatchObject({ reasoningEffort: 'other-provider-effort' })
+    await expect(request(undefined, async () => ({
+      provider: 'default-provider',
+      model: 'other-model',
+      reasoningEffort: ReasoningEffortId('other-model-effort'),
+    }))).resolves.toMatchObject({ reasoningEffort: 'other-model-effort' })
+
+    const routed: unknown = await request(undefined, async () => ({
+      provider: 'default-provider',
+      model: 'default-model',
+      reasoningEffort: ReasoningEffortId('inherited'),
+    }))
+    expect(routed).toEqual({
+      provider: 'default-provider',
+      model: 'default-model',
+      reasoningEffort: 'high',
+    })
+
+    test.markRequestHeader()
+    await expect(request(undefined, async () => ({
+      provider: 'later-provider',
+      model: 'later-model',
+      reasoningEffort: ReasoningEffortId('later'),
+    }))).resolves.toEqual({
+      provider: 'later-provider',
+      model: 'later-model',
+      reasoningEffort: 'later',
     })
   })
 

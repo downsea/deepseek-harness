@@ -1,4 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -93,7 +92,7 @@ function callTool(
   agent?: unknown,
   signal: AbortSignal = testToolSignal,
 ) {
-  return executeToolFixture(ctx, {
+  return ctx.tools.execute({
     signal,
     callId: ToolCallId(`call-${++calls}`),
     name,
@@ -345,20 +344,17 @@ describe('dsh-tool-subagent-control', () => {
     await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     const fiber = await ctx.plugin(tool)
-    const names = ['send_message', 'interrupt_agent', 'list_agents']
-    for (const name of names) expect(ctx.tools.schemas().filter(schema => schema.name === name)).toHaveLength(1)
-    expect(ctx.tools.get('list_subagent_models')).toBeUndefined()
+    expect(ctx.tools.schemas().some(schema => schema.name === 'send_message')).toBe(true)
+    expect(ctx.tools.schemas().some(schema => schema.name === 'interrupt_agent')).toBe(true)
     await fiber.dispose()
-    for (const name of names) expect(ctx.tools.get(name)).toBeUndefined()
-    const reloaded = await ctx.plugin(tool)
-    for (const name of names) expect(ctx.tools.schemas().filter(schema => schema.name === name)).toHaveLength(1)
-    await reloaded.dispose()
+    expect(ctx.tools.schemas().some(schema => schema.name === 'send_message')).toBe(false)
+    expect(ctx.tools.schemas().some(schema => schema.name === 'interrupt_agent')).toBe(false)
   })
 
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-subagent-control')
-    expect(tool.inject).toEqual(['tools', 'subagents', 'agents'])
+    expect(tool.inject).toEqual(['tools', 'subagents'])
     expect(typeof tool.apply).toBe('function')
   })
 })

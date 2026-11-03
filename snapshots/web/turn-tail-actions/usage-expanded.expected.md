@@ -11,7 +11,6 @@
 - button "Copy"
 - status: Completed
 - button "Completed in {{duration}}"
-- paragraph: Reading the workspace now.
 - paragraph: DONE
 - button "Copy"
 - button "Good response"

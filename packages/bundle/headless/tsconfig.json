@@ -40,15 +40,6 @@
     },
     {
       "path": "../../subagent/subagent"
-    },
-    {
-      "path": "../../interaction/permission-presets"
-    },
-    {
-      "path": "../../sandbox/sandbox-policy"
-    },
-    {
-      "path": "../../interaction/user-approval"
     }
   ]
 }

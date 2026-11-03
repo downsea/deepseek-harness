@@ -31,11 +31,11 @@ describe('SegmentedTabs', () => {
     expect(screen.getByRole('tablist', { name: 'Help' })).toBeTruthy()
   })
 
-  it.each(['sm', 'md'] as const)('%s moves focus and selection with arrows, Home, and End, and leaves Tab alone', (size) => {
+  it('moves focus and selection with arrows, Home, and End, and leaves Tab alone', () => {
     const onKeyDown = vi.fn()
     function Harness() {
       const [value, setValue] = useState<string>('details')
-      return <div onKeyDown={onKeyDown}><SegmentedTabs size={size} items={items} value={value} onChange={setValue} label="Help" /></div>
+      return <div onKeyDown={onKeyDown}><SegmentedTabs items={items} value={value} onChange={setValue} label="Help" /></div>
     }
     render(<Harness />)
     const details = screen.getByRole('tab', { name: 'Details' })

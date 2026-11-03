@@ -21,8 +21,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
      * Non-interactive inline model label; selection controls remain owner-managed.
-     * Without a contribution, the badge precedes the catalog name in the trigger
-     * and follows it in menus.
+     * Without a contribution, the composer displays the catalog name.
      * @example
      * return {
      *   inject: ['slots'],
@@ -51,12 +50,6 @@ export interface ModelSelectInjected {
   directory: SnapshotStore<ModelDirectoryState>
   /** Ensure the shared advisory catalog is loaded (errors land on the store). */
   load: () => void
-  /**
-   * Choose a catalog badge's provider-authored text for the active locale.
-   * @param text - the badge's literal text or translations.
-   * @returns the text to display.
-   */
-  resolveText: (text: NonNullable<ModelCatalogModel['badge']>['text']) => string
   /**
    * Select a complete provider/model/reasoning selection.
    * @param selection - model selection and optional adapter-owned effort.

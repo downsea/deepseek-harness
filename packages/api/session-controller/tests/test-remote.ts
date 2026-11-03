@@ -2,7 +2,7 @@
 import type { SessionControllerInternals } from '../src/index.ts'
 
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
-import { Service, type Context } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
 import type {
   AdmittedPromptContentPart,
@@ -51,7 +51,7 @@ import type {
   SessionOpenWorkspacePathRequest,
   SessionOpenWorkspacePathValue,
   SessionWorkspacePathApplication,
-  SessionEventsPage,
+  SessionPage,
   SessionPageRequest,
   SessionPromptRequest,
   SessionPromptValue,
@@ -66,7 +66,7 @@ import type {
   SessionUpdateQueueValue,
 } from '../src/types.ts'
 
-/** Direct test face for the generated `ctx.remote.session` unary methods these tests exercise. */
+/** Direct test face matching the generated `ctx.remote.session` unary methods. */
 export interface TestSessionRemote {
   workspacePathApplications(
     request: { readonly path: string }, signal?: AbortSignal,
@@ -87,7 +87,7 @@ export interface TestSessionRemote {
     request: SessionOpenWorkspacePathRequest,
     signal?: AbortSignal,
   ): Promise<RemoteResult<SessionOpenWorkspacePathValue>>
-  page(request: SessionPageRequest, signal?: AbortSignal): Promise<RemoteResult<SessionEventsPage>>
+  page(request: SessionPageRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPage>>
   projections(request: SessionProjectionsRequest, signal?: AbortSignal): Promise<RemoteResult<SessionProjectionsValue>>
   follow(request: SessionFollowRequest, signal?: AbortSignal): AsyncIterable<SessionFollowFrame>
   control(signal?: AbortSignal): AsyncIterable<SessionControlFrame>
@@ -104,13 +104,11 @@ export interface TestSessionRemoteDefaults {
   readonly openFileApplication?: SessionControllerInternals['openFileApplication']
   readonly revealPath?: (path: string, signal: AbortSignal) => Promise<void>
   readonly canOpenPath?: () => boolean
-  readonly listWorkSliceMs?: number
 }
 
 const installed = new WeakMap<Context, SessionController>()
 
-/** Image policy for controller fixtures without attachment I/O. */
-export const TEST_IMAGE_LIMITS: ImageAttachmentLimits = Object.freeze({
+const TEST_IMAGE_LIMITS: ImageAttachmentLimits = Object.freeze({
   maxImageBytes: 5 * 1024 * 1024,
   maxImagesPerMessage: 20,
   maxMessageImageBytes: 100 * 1024 * 1024,
@@ -234,10 +232,10 @@ export function installSessionReadTestServices(ctx: Context): void {
   if (ctx.get('sessionQuery') === undefined) new TestSessionQuery(ctx)
 }
 
-async function installControllers(
+function installControllers(
   ctx: Context,
   defaults: TestSessionRemoteDefaults,
-): Promise<SessionController> {
+): SessionController {
   const found = installed.get(ctx)
   if (found !== undefined) return found
 
@@ -295,18 +293,12 @@ async function installControllers(
   installSessionReadTestServices(ctx)
   if (ctx.get('remoteAccess') === undefined) new RemoteAccessService(ctx)
   const cwd = vi.spyOn(process, 'cwd').mockReturnValue(defaults.cwd)
-  class TestController extends SessionController {
-    initialize(): Promise<void> {
-      return this[Service.init]()
-    }
-  }
-  let controller: TestController
+  let controller: SessionController
   try {
-    controller = new TestController(
+    controller = new SessionController(
       ctx,
       {
         ...defaults.nativeOpen === undefined ? {} : { nativeOpen: defaults.nativeOpen },
-        ...defaults.listWorkSliceMs === undefined ? {} : { listWorkSliceMs: defaults.listWorkSliceMs },
       },
       {
         ...defaults.openPath === undefined ? {} : { openPath: defaults.openPath },
@@ -316,7 +308,6 @@ async function installControllers(
         ...defaults.canOpenPath === undefined ? {} : { canOpenPath: defaults.canOpenPath },
       },
     )
-    await controller.initialize()
   } finally {
     cwd.mockRestore()
   }
@@ -325,11 +316,11 @@ async function installControllers(
 }
 
 /** Build or return the production Session Controller for a direct unit harness. */
-export async function createSessionTestController(
+export function createSessionTestController(
   ctx: Context,
   defaults: TestSessionRemoteDefaults,
-): Promise<SessionController> {
-  return await installControllers(ctx, defaults)
+): SessionController {
+  return installControllers(ctx, defaults)
 }
 
 function remoteResult<T>(
@@ -353,11 +344,11 @@ function remoteResult<T>(
 }
 
 /** Build the generated Session Remote's unary result semantics without a carrier. */
-export async function createSessionTestRemote(
+export function createSessionTestRemote(
   ctx: Context,
   defaults: TestSessionRemoteDefaults,
-): Promise<TestSessionRemote> {
-  const direct = await createSessionTestController(ctx, defaults)
+): TestSessionRemote {
+  const direct = createSessionTestController(ctx, defaults)
   return {
     workspacePathApplications: (request, signal = new AbortController().signal) => remoteResult(
       () => direct.workspacePathApplications(request, signal), signal,
@@ -388,7 +379,6 @@ export async function createSessionTestRemote(
       signal,
     ),
     page: (request, signal = new AbortController().signal) => remoteResult(
-      // oxlint-disable-next-line typescript/no-deprecated -- Test face keeps the legacy page entry covered.
       () => direct.page(request, signal),
       signal,
     ),

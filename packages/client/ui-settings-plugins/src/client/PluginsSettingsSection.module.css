@@ -40,14 +40,9 @@
   cursor: pointer;
 }
 
+.tab:hover,
 .tab[data-active='true'] {
   color: var(--dsw-alias-label-primary);
-}
-
-@media (hover: hover) {
-  .tab:hover {
-    color: var(--dsw-alias-label-primary);
-  }
 }
 
 .tab[data-active='true']::after,

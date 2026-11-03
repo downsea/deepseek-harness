@@ -1,4 +1,3 @@
-import { modelSelectionProjectionDefinition } from '@deepseek-ai/dsh-agent'
 /** Request immutability through the real loop, including adopted restore graphs. */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,7 +9,6 @@ import { createAssistantMessage, createUserMessage, isAgentLoopRequest } from '@
 import type { GenerateOptions, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SessionLogOffset, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import * as values from '@deepseek-ai/dsh-util-values'
-import { inboxProjectionDefinition } from '../src/inbox.ts'
 import { ReactLoopAgent } from '../src/agent.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -75,11 +73,7 @@ describe('loop-owned request freezing', () => {
     expect(Object.isFrozen(userEvent.data.content)).toBe(false)
     expect(Object.isFrozen(assistantEvent.data.message)).toBe(false)
     ctx.effect(() => ctx.sessions.enter(session))
-    ctx.sessions.announce(session)
-    const inbox = await loopCtx.sessionProjections.register(inboxProjectionDefinition)
-    const model = await loopCtx.sessionProjections.register(modelSelectionProjectionDefinition)
-    const agent = new ReactLoopAgent(loopCtx, id, { provider: 'mock', model: 'mock' }, session,
-      { modelSelection: model.readerFor(session), inbox: inbox.readerFor(session) }, ctx.agents.turnBoundaryOf(session).lastTurn)
+    const agent = new ReactLoopAgent(loopCtx, id, { provider: 'mock', model: 'mock' }, session)
     cleanups.push(async () => {
       agent.cancel({ kind: 'disposed' })
       await agent.whenIdle()
@@ -128,8 +122,7 @@ describe('loop-owned request freezing', () => {
     expect(Object.isFrozen(session.deriveMessages())).toBe(false)
     expect(freeze.mock.calls.filter(([value]) => value === userEvent.data)).toHaveLength(1)
     expect(freeze.mock.calls.filter(([value]) => value === replacement.data)).toHaveLength(1)
-    const resumed = new ReactLoopAgent(loopCtx, id, { provider: 'mock', model: 'mock' }, session,
-      { modelSelection: model.readerFor(session), inbox: inbox.readerFor(session) }, ctx.agents.turnBoundaryOf(session).lastTurn)
+    const resumed = new ReactLoopAgent(loopCtx, id, { provider: 'mock', model: 'mock' }, session)
     cleanups.push(async () => {
       resumed.cancel({ kind: 'disposed' })
       await resumed.whenIdle()
@@ -171,12 +164,13 @@ describe('loop-owned request freezing', () => {
     const { ctx } = await harness(adapter)
     const schemas: ToolSchema[][] = []
     const stops: string[][] = []
-    ctx.systemPrompt.tools(() => {
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const assembly = await next()
       const tools: ToolSchema[] = [{ name: 'nested', description: 'test', parameters: {
         type: 'object', properties: { value: { type: 'array', items: { type: 'string', enum: ['a', 'b'] } } },
       } }]
       schemas.push(tools)
-      return { schemas: tools }
+      return { ...assembly, tools }
     })
     ctx.on('agent/request', async (_payload, next) => {
       const config = await next()
@@ -199,8 +193,8 @@ describe('loop-owned request freezing', () => {
     expect(errors).toEqual([])
     expect(requests).toHaveLength(2)
     for (const [index, request] of requests.entries()) {
-      expect(request.tools).toEqual(schemas[index])
-      expectFrozen(request.tools)
+      expect(request.tools).toBe(schemas[index])
+      expectFrozen(schemas[index])
       expect(() => request.stop!.push('mutate')).toThrow(TypeError)
       if (!registered) expect(request.stop).toBe(stops[index])
     }

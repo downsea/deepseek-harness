@@ -1,4 +1,3 @@
-import { executeToolFixture, executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountWorkingDirectoryFixture } from './working-directory-fixture.ts'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -12,9 +11,8 @@ import SubagentRuntime, {
   type SubagentActivation,
   type SubagentResult,
 } from '@deepseek-ai/dsh-subagent'
-import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import type { Config as ToolConfig, ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { TestSessionQuery } from './test-session-query.ts'
 import { mountLocalActivations, startTestActivation } from './local-activation.ts'
@@ -33,7 +31,7 @@ interface PtcRunRequestLike {
 }
 
 interface SetupOptions {
-  toolMode?: ('native' | 'ptc')
+  toolMode?: ToolConfig['mode']
   codeRun?: (request: PtcRunRequestLike) => Promise<{ logs: never[]; value?: unknown }>
 }
 
@@ -171,7 +169,7 @@ describe('in-process structured output', () => {
       return blocked ? { kind: 'block', feedback: [{ type: 'text', text: 'Result policy rejected capture.' }] } : next()
     })
     const run = await startTestActivation(ctx, 'spawn', structuredRequest(parent))
-    const execution = executeModelToolFixture(ctx, {
+    const execution = ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('capture'),
       name: toolName,
@@ -837,7 +835,7 @@ describe('in-process structured output', () => {
 
   it('a structured_output call from an agent WITHOUT a structured run is UNKNOWN_TOOL (the tool does not exist for it)', async () => {
     const { ctx, parent } = await setup([])
-    const result = await executeToolFixture(ctx, {
+    const result = await ctx.tools.execute({
       signal: testToolSignal,
       callId: 'x' as never,
       name: STRUCTURED_OUTPUT_TOOL,
@@ -850,7 +848,7 @@ describe('in-process structured output', () => {
 
   it('a structured_output call with NO calling agent at all is UNKNOWN_TOOL', async () => {
     const { ctx } = await setup([])
-    const result = await executeToolFixture(ctx, {
+    const result = await ctx.tools.execute({
       signal: testToolSignal,
       callId: 'x' as never,
       name: STRUCTURED_OUTPUT_TOOL,
@@ -874,7 +872,7 @@ describe('in-process structured output', () => {
       }
       return next()
     }, { prepend: true })
-    const failed = await executeToolFixture(ctx, {
+    const failed = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('c1'),
       name: STRUCTURED_OUTPUT_TOOL,
@@ -884,7 +882,7 @@ describe('in-process structured output', () => {
     expect(failed.isError).toBe(true)
     const child = run.localAgent
     // Invalid calls must not commit a preceding execution's discarded value.
-    const invalid = await executeToolFixture(ctx, {
+    const invalid = await ctx.tools.execute({
       signal: testToolSignal,
       callId: 'c2' as never,
       name: STRUCTURED_OUTPUT_TOOL,
@@ -893,7 +891,7 @@ describe('in-process structured output', () => {
     })
     expect(invalid.isError).toBe(true)
     // A fresh valid call still captures ITS OWN value.
-    const valid = await executeToolFixture(ctx, {
+    const valid = await ctx.tools.execute({
       signal: testToolSignal,
       callId: 'c3' as never,
       name: STRUCTURED_OUTPUT_TOOL,
@@ -918,7 +916,7 @@ describe('in-process structured output', () => {
       }
       return next()
     }, { prepend: true })
-    const failed = await executeToolFixture(ctx, {
+    const failed = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('c1'),
       name: STRUCTURED_OUTPUT_TOOL,
@@ -930,7 +928,7 @@ describe('in-process structured output', () => {
     // A SECOND capture call with the SAME call id whose body never stages
     // (invalid args throw before the stage): the discarded value must not ride
     // its acceptance.
-    const reused = await executeToolFixture(ctx, {
+    const reused = await ctx.tools.execute({
       signal: testToolSignal,
       callId: 'c1' as never,
       name: STRUCTURED_OUTPUT_TOOL,
@@ -939,7 +937,7 @@ describe('in-process structured output', () => {
     })
     expect(reused.isError).toBe(true)
     // Nothing was ever committed: a fresh valid call is still required.
-    const valid = await executeToolFixture(ctx, {
+    const valid = await ctx.tools.execute({
       signal: testToolSignal,
       callId: 'c1' as never,
       name: STRUCTURED_OUTPUT_TOOL,
@@ -963,7 +961,7 @@ describe('in-process structured output', () => {
       }
       return next()
     }, { prepend: true })
-    const failed = await executeToolFixture(ctx, {
+    const failed = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('c1'),
       name: STRUCTURED_OUTPUT_TOOL,
@@ -980,7 +978,7 @@ describe('in-process structured output', () => {
       }
       return undefined as never
     }, { prepend: true })
-    const denied = await executeToolFixture(ctx, {
+    const denied = await ctx.tools.execute({
       signal: testToolSignal,
       callId: 'c1' as never,
       name: STRUCTURED_OUTPUT_TOOL,
@@ -991,7 +989,7 @@ describe('in-process structured output', () => {
     offDeny()
     // The discarded value was never promoted: a fresh valid call is required
     // (and succeeds, proving the runtime is not wedged).
-    const valid = await executeToolFixture(ctx, {
+    const valid = await ctx.tools.execute({
       signal: testToolSignal,
       callId: 'c1' as never,
       name: STRUCTURED_OUTPUT_TOOL,

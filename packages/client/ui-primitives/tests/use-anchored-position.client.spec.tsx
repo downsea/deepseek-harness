@@ -51,12 +51,10 @@ function stubResizeObserver(): Recorded[] {
  * @param props - whether the panel is open.
  * @returns the anchor and, while open, the panel carrying the position.
  */
-function Host({ open, align, side }: { open: boolean; align?: 'start' | 'end'; side?: 'top' | 'bottom' }) {
+function Host({ open, align }: { open: boolean; align?: 'start' | 'end' }) {
   const anchorRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const position = useAnchoredPosition({
-    open, anchorRef, panelRef, gap: 4, margin: 12, ...align === undefined ? {} : { align }, ...side === undefined ? {} : { side },
-  })
+  const position = useAnchoredPosition({ open, anchorRef, panelRef, gap: 4, margin: 12, ...align === undefined ? {} : { align } })
   return (
     <>
       <button ref={anchorRef} type="button">anchor</button>
@@ -66,11 +64,7 @@ function Host({ open, align, side }: { open: boolean; align?: 'start' | 'end'; s
 }
 
 describe('useAnchoredPosition', () => {
-  it.each([
-    { name: 'a panel that does not fit above its anchor', side: 'top', anchor: new DOMRect(100, 100, 200, 10), fullscreen: false, top: 60 },
-    { name: 'a panel that does not fit above its anchor', side: 'top', anchor: new DOMRect(100, 100, 200, 10), fullscreen: true, top: 20 },
-    { name: 'a panel below an anchor inside the top strip', side: 'bottom', anchor: new DOMRect(100, 0, 200, 10), fullscreen: false, top: 14 },
-  ] as const)('keeps $name at $top with fullscreen=$fullscreen', ({ side, anchor, fullscreen, top }) => {
+  it.each([{ fullscreen: false, top: 60 }, { fullscreen: true, top: 20 }])('keeps an anchored panel at $top with fullscreen=$fullscreen', ({ fullscreen, top }) => {
     const root = document.documentElement
     const previous = root.getAttribute('style')
     const priorFullscreen = root.getAttribute('data-fullscreen')
@@ -83,10 +77,10 @@ describe('useAnchoredPosition', () => {
     })
     root.style.setProperty('--dsh-frame-top-clearance', '40px')
     root.toggleAttribute('data-fullscreen', fullscreen)
-    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue(anchor)
+    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 0, 200, 10))
     vi.spyOn(HTMLDivElement.prototype, 'offsetHeight', 'get').mockReturnValue(400)
     vi.stubGlobal('innerHeight', 600)
-    const { getByTestId } = render(<Host open side={side} />)
+    const { getByTestId } = render(<Host open />)
     expect(getByTestId('panel').style.top).toBe(`${top}px`)
   })
 

@@ -34,6 +34,9 @@
     },
     {
       "path": "../goal"
+    },
+    {
+      "path": "../../session/session-projection"
     }
   ]
 }

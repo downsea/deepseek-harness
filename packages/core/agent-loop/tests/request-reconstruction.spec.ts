@@ -5,7 +5,6 @@
  * replacement or header change explains the difference.
  */
 
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage, LlmError, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
@@ -13,8 +12,7 @@ import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, Stre
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -43,7 +41,6 @@ async function harnessRoutes(
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt, { personaPrefix: persona })
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   for (const [provider, adapter] of adapters) ctx.llm.registerAdapter([provider], adapter)
@@ -221,11 +218,13 @@ describe('request stability across the loop', () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')], reasoning)
     const ctx = await harness(adapter)
     const agent = await ctx.agentLoop.create(SessionId('effort'), { provider: 'mock', model: 'mock' })
+    ctx.on('agent/request', async ({ turn }, next) => {
+      const config = await next()
+      return turn === 2 ? { ...config, reasoningEffort: ReasoningEffortId('max') } : config
+    })
+
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    agent.model.select({
-      provider: 'mock', model: 'mock', reasoningEffort: ReasoningEffortId('max'),
-    })
     send(agent, 'second')
     await waitForIdle(ctx, agent)
 
@@ -254,9 +253,6 @@ describe('request stability across the loop', () => {
         sessionId: SessionId(`effort-${model}`),
         seed: structuredClone(agent.session.snapshotEvents()),
         agentOptions: { provider: 'mock', model },
-        setup: (_ctx, agent) => {
-          if (model !== 'mock') agent.model.select({ provider: 'mock', model })
-        },
       })
       send(resumedHandle.agent, 'resumed')
       await waitForIdle(resumedCtx, resumedHandle.agent)
@@ -298,9 +294,15 @@ describe('request stability across the loop', () => {
       provider: 'deepseek',
       model: 'deepseek-model',
     })
+    ctx.on('agent/request', async ({ turn }, next) => {
+      const config = await next()
+      return turn === 2
+        ? { ...config, provider: 'other', model: 'other-model' }
+        : config
+    })
+
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    agent.model.select({ provider: 'other', model: 'other-model' })
     send(agent, 'second')
     await waitForIdle(ctx, agent)
 
@@ -326,9 +328,15 @@ describe('request stability across the loop', () => {
       model: 'deepseek-model',
       maxTokens: 4_096,
     })
+    ctx.on('agent/request', async ({ turn }, next) => {
+      const config = await next()
+      return turn === 2
+        ? { ...config, provider: 'other', model: 'other-model' }
+        : config
+    })
+
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    agent.model.select({ provider: 'other', model: 'other-model' })
     send(agent, 'second')
     await waitForIdle(ctx, agent)
 
@@ -346,7 +354,6 @@ describe('request stability across the loop', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt, { personaPrefix: 'stable base' })
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     const started = Promise.withResolvers<undefined>()
@@ -466,7 +473,6 @@ describe('request stability across the loop', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt, { personaPrefix: 'stable base' })
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     let observed: GenerateOptions | undefined
@@ -942,7 +948,9 @@ describe('request/context capacity records', () => {
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    agent.model.select({ provider: 'mock', model: 'large' })
+    ctx.on('agent/request', ({ agent: subject }, next) => subject === agent
+      ? Promise.resolve({ provider: 'mock', model: 'large' })
+      : next())
     send(agent, 'second')
     await waitForIdle(ctx, agent)
 
@@ -967,9 +975,14 @@ describe('request/context capacity records', () => {
     const adapter = capacityAdapter({ known: 64_000 }, [textResponse('a'), textResponse('b')])
     const ctx = await harness(adapter)
     const agent = await ctx.agentLoop.create(SessionId('capacity-clear'), { provider: 'mock', model: 'known' })
+    let model = 'known'
+    ctx.on('agent/request', ({ agent: subject }, next) => subject === agent
+      ? Promise.resolve({ provider: 'mock', model })
+      : next())
+
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    agent.model.select({ provider: 'mock', model: 'unknown' })
+    model = 'unknown'
     send(agent, 'second')
     await waitForIdle(ctx, agent)
 

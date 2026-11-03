@@ -43,10 +43,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .row:hover {
-    color: var(--dsw-alias-label-secondary);
-  }
+.row:hover {
+  color: var(--dsw-alias-label-secondary);
 }
 
 .leading {
@@ -91,14 +89,12 @@ button.leading {
   transition: opacity 100ms ease;
 }
 
-@media (hover: hover) {
-  .row:hover .iconIdle {
-    opacity: 0;
-  }
+.row:hover .iconIdle {
+  opacity: 0;
+}
 
-  .row:hover .chevronHover {
-    opacity: 1;
-  }
+.row:hover .chevronHover {
+  opacity: 1;
 }
 
 .title {

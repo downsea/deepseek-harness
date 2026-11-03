@@ -231,10 +231,8 @@
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  .action:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
+.action:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .action:focus-visible {

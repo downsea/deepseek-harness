@@ -22,11 +22,9 @@
   height: calc(15px + var(--dsh-content-font-delta, 0px));
 }
 
-@media (hover: hover) {
-  .action:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-    color: var(--dsw-alias-label-secondary);
-  }
+.action:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .action:disabled {

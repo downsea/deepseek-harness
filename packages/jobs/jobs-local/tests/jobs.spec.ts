@@ -1,4 +1,3 @@
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -14,7 +13,7 @@ import type {
   JobEvent, JobEventFilter, JobHandle, JobHooks, JobKind, JobOutcome, JobOutputSource, JobSpec, JobView,
 } from '@deepseek-ai/dsh-jobs'
 import LocalJobRegistry, { type Config as JobsConfig } from '@deepseek-ai/dsh-jobs-local'
-import { unsupportedModel, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 vi.mock('node:crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:crypto')>()
@@ -49,7 +48,6 @@ function stubAgent(ctx: Context, rawId: string, presetScope?: ScopeKey): Agent {
     id,
     options: {},
     session,
-    model: unsupportedModel(),
     inbox: unsupportedInbox(),
     status: 'idle' as const,
     ctx: agentCtx,
@@ -119,7 +117,6 @@ function producer(overrides: ProducerOverrides = {}) {
 
 async function harness(config: JobsConfig = {}) {
   const ctx = new Context()
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalJobRegistry, config)
   ctx.jobs.attachController('test-controller')
@@ -186,7 +183,6 @@ describe('LocalJobRegistry.start', () => {
 
   it('refuses an owner whose own composition attaches no controller', async () => {
     const ctx = new Context()
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalJobRegistry)
     // Two standing preset mounts over one registry; only the first loads the
@@ -208,7 +204,6 @@ describe('LocalJobRegistry.start', () => {
 
   it('lets a controller attached without a scope serve every owner', async () => {
     const ctx = new Context()
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalJobRegistry)
     // The host-plane composition's own controls: no scope, so the global layer
@@ -916,7 +911,6 @@ describe('LocalJobRegistry owner cleanup', () => {
 
   it('registers owner cleanup on the agent scope rather than the jobs fiber', async () => {
     const ctx = new Context()
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     const tasksFiber = await ctx.plugin(LocalJobRegistry)
     ctx.jobs.attachController('test-controller')
@@ -983,7 +977,6 @@ describe('LocalJobRegistry owner cleanup', () => {
 describe('LocalJobRegistry disposal', () => {
   it('cancels live jobs, awaits settlement, and announces the teardown to outside subscribers', async () => {
     const ctx = new Context()
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     const fiber = await ctx.plugin(LocalJobRegistry)
     await ctx.plugin(Object.assign((inner: Context) => {
@@ -1014,7 +1007,6 @@ describe('LocalJobRegistry disposal', () => {
 
   it('force-fails a throwing cancel so service disposal does not await producer done', async () => {
     const ctx = new Context()
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     const fiber = await ctx.plugin(LocalJobRegistry)
     ctx.jobs.attachController('test-controller')
@@ -1052,7 +1044,6 @@ describe('LocalJobRegistry disposal', () => {
 
   it('detaches owner effects from still-live agent scopes when the service unloads', async () => {
     const ctx = new Context()
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     const tasksFiber = await ctx.plugin(LocalJobRegistry)
     ctx.jobs.attachController('test-controller')
@@ -1078,7 +1069,6 @@ describe('LocalJobRegistry disposal', () => {
 
   it('drops a scoped layer when its registrations dispose', async () => {
     const ctx = new Context()
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalJobRegistry)
     const standing = createScope(ctx, {})

@@ -1,5 +1,4 @@
 /** Account route cancellation uses the real loop, registry, and tool lifecycle. */
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { afterEach, expect, it, vi } from 'vitest'
 import { installAccountTaskCancellation, type DeepSeekAccount } from '@deepseek-ai/dsh-deepseek-account'
 import { Context } from '@deepseek-ai/cordis'
@@ -9,8 +8,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import * as DeepSeek from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import * as AccountProvider from '@deepseek-ai/dsh-llm-deepseek-account'
 import { assemble } from './assemble.ts'
@@ -33,9 +31,7 @@ async function harness() {
   const ctx = new Context()
   contexts.push(ctx)
   installAccountTaskCancellation(ctx)
-  for (const plugin of [
-    LlmRuntime, SessionStore, SessionProjectionRegistry, SystemPrompt, ToolRuntime, NativeToolExecutor, AgentRegistry,
-  ]) {
+  for (const plugin of [LlmRuntime, SessionStore, SessionProjectionRegistry, SystemPrompt, ToolRuntime, AgentRegistry]) {
     await ctx.plugin(plugin)
   }
   await ctx.plugin(AgentLoop, { agents: [] })
@@ -99,7 +95,7 @@ it.each(['deepseek-account', 'deepseek-official'])('cancels only the active acco
     ? { kind: 'hook', reason: 'deepseek-account/signed-out' } : { kind: 'user' } } })
 })
 
-it.each(['tool', 'retry'])('keeps the active provider until a later step binds a new selection: %s', async (transition) => {
+it.each(['tool', 'retry'])('replaces the active provider only after the next request binds: %s', async (transition) => {
   const ctx = await harness()
   const preparing = Promise.withResolvers<undefined>()
   const proceed = Promise.withResolvers<undefined>()
@@ -110,18 +106,11 @@ it.each(['tool', 'retry'])('keeps the active provider until a later step binds a
     if (++requests === 1) return config
     preparing.resolve(undefined)
     await proceed.promise
-    return config
+    return { ...config, provider: 'deepseek-official' }
   })
-  const selectOfficial = (agent: Agent) => {
-    agent.model.select({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
-  }
-  ctx.on('agent/request-error', async ({ agent }, next) => {
-    await next()
-    selectOfficial(agent)
-    return { kind: 'retry' }
-  })
+  ctx.on('agent/request-error', async (_event, next) => { await next(); return { kind: 'retry' } })
   ctx.on('llm/stream', async function* (request) {
-    if (requests === 1) {
+    if (request.provider === 'deepseek-account') {
       if (transition === 'retry') {
         yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'retry fixture' } } }
         return
@@ -133,29 +122,22 @@ it.each(['tool', 'retry'])('keeps the active provider until a later step binds a
     }
     const signal = request.signal!
     streaming.resolve(signal)
-    if (!signal.aborted) await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+    await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
     signal.throwIfAborted()
   })
-  ctx.tools.register(defineContentToolFixture({ name: 'continue', description: '', parameters: {}, execute: async () => {
-    selectOfficial(agent)
-    return [{ type: 'text', text: 'done' }]
-  } }))
+  ctx.tools.register(defineContentToolFixture({ name: 'continue', description: '', parameters: {}, execute: async () => [{ type: 'text', text: 'done' }] }))
   const agent = await ctx.agentLoop.create(SessionId('switch-provider'), { provider: 'deepseek-account', model: 'deepseek-v4-flash' })
   expect(agent.session.requestContext()?.provider).toBeUndefined()
-  try {
-    send(agent)
-    await preparing.promise
-    expect(agent.session.requestContext()?.provider).toBe('deepseek-account')
-    proceed.resolve(undefined)
-    const signal = await streaming.promise
-    expect(agent.session.requestContext()?.provider).toBe(transition === 'tool' ? 'deepseek-official' : 'deepseek-account')
-    ctx.emit('deepseek-account/signed-out')
-    expect(signal.aborted).toBe(transition === 'retry')
-  } finally {
-    proceed.resolve(undefined)
-    agent.cancel({ kind: 'user' })
-    await agent.whenIdle()
-  }
+  send(agent)
+  await preparing.promise
+  expect(agent.session.requestContext()?.provider).toBe('deepseek-account')
+  proceed.resolve(undefined)
+  const signal = await streaming.promise
+  expect(agent.session.requestContext()?.provider).toBe('deepseek-official')
+  ctx.emit('deepseek-account/signed-out')
+  expect(signal.aborted).toBe(false)
+  agent.cancel({ kind: 'user' })
+  await agent.whenIdle()
   expect(agent.status).toBe('idle')
 })
 
@@ -248,7 +230,6 @@ it('cancels an account child without stopping its API-key parent', async () => {
 })
 
 it('lists each DeepSeek route only when its own credential is present', async () => {
-  vi.stubEnv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
   vi.stubEnv('DEEPSEEK_API_KEY', '')
   vi.stubGlobal('fetch', vi.fn((input: string | URL | Request) => Promise.resolve(listingRequest(input) ?? new Response(null, { status: 500 }))))
   const ctx = await harness()
@@ -283,14 +264,13 @@ it('ignores idle account history but uses the last bound route during a new turn
   const cancel = vi.spyOn(agent, 'cancel')
   ctx.emit('deepseek-account/signed-out')
   expect(cancel).not.toHaveBeenCalled()
-  agent.model.select({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
   const preparing = Promise.withResolvers<undefined>()
   const proceed = Promise.withResolvers<undefined>()
   ctx.on('agent/request', async (_event, next) => {
     const config = await next()
     preparing.resolve(undefined)
     await proceed.promise
-    return config
+    return { ...config, provider: 'deepseek-official' }
   })
   try {
     send(agent)

@@ -12,7 +12,6 @@ import { Context } from '@deepseek-ai/cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { randomUUID } from 'node:crypto'
 import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -457,7 +456,6 @@ describe('HarnessSdkJsonRpcServer', () => {
   it('forwards whole-agent status without attributing a turn outcome', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     const transport = new FakeTransport()
     const server = new HarnessSdkJsonRpcServer(ctx, transport)
@@ -479,7 +477,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     await ctx.fiber.dispose()
   })
 
-  it('notifies the host only for subagent sessions with a direct creator', async () => {
+  it('notifies the host when a child session is created with parent lineage', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-'))
     const ctx = await makeHarness(storageDir)
     try {
@@ -490,22 +488,16 @@ describe('HarnessSdkJsonRpcServer', () => {
         meta: { cwd: storageDir },
       })
       ctx.sessions.create(SessionId('child-session'), {
-        meta: { cwd: storageDir, parentSession: SessionId('main'), origin: 'subagent' },
-      })
-
-      ctx.sessions.create(SessionId('legacy-fork'), {
         meta: { cwd: storageDir, parentSession: SessionId('main') },
       })
-      ctx.sessions.fork(SessionId('child-session'), undefined, SessionId('ordinary-fork'))
-      ctx.sessions.create(SessionId('unparented-subagent'), { meta: { origin: 'subagent' } })
 
-      expect(transport.notifications.filter(item => item.method === 'subagent.started')).toEqual([{
+      expect(transport.notifications).toContainEqual({
         method: 'subagent.started',
         params: {
           parentSessionId: 'main',
           childSessionId: 'child-session',
         },
-      }])
+      })
 
       await server.shutdown()
     } finally {

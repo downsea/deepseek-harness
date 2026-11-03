@@ -1,5 +1,5 @@
 /** Indexed recorded todo predecessors for root and nested Tool calls. */
-import type {} from '@deepseek-ai/dsh-tool-executor-ptc/client'
+import type {} from '@deepseek-ai/dsh-tools/types'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConversationNodeDefinition, ConversationViewDefinition, ConversationViewNode, TodoItem,

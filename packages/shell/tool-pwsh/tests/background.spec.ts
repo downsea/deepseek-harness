@@ -1,6 +1,3 @@
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -10,7 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { unsupportedModel, provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
@@ -89,8 +86,6 @@ async function setup() {
   provideWorkingDirectoryFixture(ctx)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalJobRegistry, { pumpPollMs: 5 })
   await ctx.plugin(ToolTasks)
@@ -102,7 +97,7 @@ async function setup() {
 
 let callCounter = 0
 function call(ctx: Context, args: Record<string, unknown>) {
-  return executeToolFixture(ctx, {
+  return ctx.tools.execute({
     signal: testToolSignal,
     callId: ToolCallId(`pwsh-background-${++callCounter}`),
     name: 'pwsh',
@@ -214,7 +209,6 @@ describe('owned background output (pwsh)', () => {
       session: Session.create(ownerId, undefined, {
         version: SESSION_FORMAT_VERSION, id: ownerId, createdAt: 0, cwd: process.cwd(), isSeeded: false,
       }),
-      model: unsupportedModel(),
       inbox: unsupportedInbox(),
       status: 'idle',
       ctx,
@@ -229,7 +223,7 @@ describe('owned background output (pwsh)', () => {
     ctx.agents.register(owner)
     const scripted = observableProcess()
     pwsh.backgroundHandler = () => scripted.proc
-    await executeToolFixture(ctx, {
+    await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('pwsh-background-owned'),
       name: 'pwsh',
@@ -297,7 +291,7 @@ describe('foreground commands as jobs (pwsh)', () => {
     const jobId = ctx.jobs.list()[0]?.id
     expect(jobId).toMatch(/^pwsh-[0-9a-f]{16}$/)
     expect(body).toContain(`moved to background job ${jobId}]`)
-    expect(body.endsWith(`moved to background job ${jobId}]`)).toBe(true)
+    expect(body).toContain('read newer output with job_output, stop it with job_kill')
 
     const jobs = ctx.jobs
     const job = jobs.list()[0]
@@ -356,7 +350,7 @@ describe('foreground commands as jobs (pwsh)', () => {
     const scripted = runningExecution('')
     pwsh.backgroundHandler = () => scripted.proc
     const controller = new AbortController()
-    const pending = executeToolFixture(ctx, {
+    const pending = ctx.tools.execute({
       signal: controller.signal,
       callId: ToolCallId('pwsh-call-aborted'),
       name: 'pwsh',
@@ -379,7 +373,7 @@ describe('foreground commands as jobs (pwsh)', () => {
     scripted.proc.kill = () => true
     pwsh.backgroundHandler = () => scripted.proc
     const controller = new AbortController()
-    const pending = executeToolFixture(ctx, {
+    const pending = ctx.tools.execute({
       signal: controller.signal,
       callId: ToolCallId('pwsh-call-aborted-slow-kill'),
       name: 'pwsh',
@@ -417,7 +411,6 @@ describe('foreground commands as jobs (pwsh)', () => {
       session: Session.create(ownerId, undefined, {
         version: SESSION_FORMAT_VERSION, id: ownerId, createdAt: 0, cwd: process.cwd(), isSeeded: false,
       }),
-      model: unsupportedModel(),
       inbox: unsupportedInbox(),
       status: 'idle',
       ctx,
@@ -433,7 +426,7 @@ describe('foreground commands as jobs (pwsh)', () => {
     const scripted = runningExecution('')
     pwsh.backgroundHandler = () => scripted.proc
 
-    const result = await executeToolFixture(ctx, {
+    const result = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('pwsh-observe-promote-owned'),
       name: 'pwsh',
@@ -463,8 +456,6 @@ describe('foreground commands as jobs (pwsh)', () => {
     provideWorkingDirectoryFixture(ctx)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalJobRegistry)
     await ctx.plugin(BashEnvPlugin)
@@ -503,8 +494,6 @@ describe('foreground commands as jobs (pwsh)', () => {
     provideWorkingDirectoryFixture(ctx)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalJobRegistry)
     await ctx.plugin(ToolTasks)
@@ -547,7 +536,9 @@ describe('foreground commands as jobs (pwsh)', () => {
 describe('renderPwshPromoted', () => {
   it('pins the promoted text with and without pre-promotion output', () => {
     expect(renderPwshPromoted({ jobId: 'pwsh-7', timeoutMs: 120_000, output: '' })).toBe(
-      '[still running after 120000ms; moved to background job pwsh-7]',
+      '[still running after 120000ms; moved to background job pwsh-7]\n'
+      + 'The command keeps running in the background. You will be notified when it finishes; '
+      + 'read newer output with job_output, stop it with job_kill.',
     )
     expect(renderPwshPromoted({ jobId: 'pwsh-7', timeoutMs: 250, output: 'partial' }))
       .toContain('partial\n[still running after 250ms; moved to background job pwsh-7]')

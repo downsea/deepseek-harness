@@ -8,8 +8,6 @@
  * @module @deepseek-ai/dsh-tool-todo/types
  */
 
-import type { SessionProjectionSummaryExcluded } from '@deepseek-ai/dsh-session-projection/types'
-
 /**
  * One entry in an agent's todo list — the unit of the `todo/write`
  * whole-list snapshot declared by this package.
@@ -35,14 +33,15 @@ declare module '@deepseek-ai/dsh-session/types' {
 }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionStateMap {
+    todos: TodoItem[] | null
+  }
   interface SessionProjectionMap {
     /**
      * The agent's current whole todo list (the latest `todo/write` snapshot),
      * or `null` before the first write. Whole-value rule: every `todo/write`
      * carries the complete replacement list, so the fold is last-wins.
-     * Excluded from Session summary payloads, with `null` kept outside the
-     * exclusion mark so the pre-first-write value stays expressible.
      */
-    todos: SessionProjectionSummaryExcluded<TodoItem[]> | null
+    todos: TodoItem[] | null
   }
 }

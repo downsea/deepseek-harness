@@ -79,7 +79,7 @@ describe('subagent catalog projection', () => {
     try {
       await ctx.plugin(SessionStore)
       await ctx.plugin(SessionProjectionRegistry)
-      await ctx.sessionProjections.register(subagentCatalogProjectionDefinition)
+      ctx.sessionProjections.register(subagentCatalogProjectionDefinition)
       const parent = ctx.sessions.create(header.id)
       const changes = vi.fn()
       ctx.sessionProjections.onChanged(changes)
@@ -196,7 +196,7 @@ describe('subagent catalog projection', () => {
     try {
       await ctx.plugin(SessionStore)
       await ctx.plugin(SessionProjectionRegistry)
-      await ctx.sessionProjections.register(subagentCatalogProjectionDefinition)
+      ctx.sessionProjections.register(subagentCatalogProjectionDefinition)
       const events = [
         fact(0, 'valid-child', 0, { mode: 'one-shot' }),
         { type: 'subagent/catalog', seq: SessionSeq(1), time: 0, data } as unknown as SessionEvent,

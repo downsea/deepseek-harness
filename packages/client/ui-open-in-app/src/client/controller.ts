@@ -7,7 +7,6 @@ import {
 } from '@deepseek-ai/dsh-host-open-in-app/shared'
 
 import { APP_LABEL_KEY } from './applications.ts'
-import type { OpenInAppOutcome } from './outcome.ts'
 
 /** Shared launch status for controls targeting the captured workspace path. */
 export interface OpenInAppLaunchState {
@@ -73,12 +72,10 @@ export class OpenInAppController {
    * @param appId - catalog id from the availability list.
    * @param path - the session's absolute workspace directory.
    * Concurrent gestures are ignored until the current Host request settles.
-   * @returns the acknowledged handoff, or `{ kind: 'skipped' }` while another
-   * launch holds the operation, or a named failure when the Host refuses or
-   * cannot be reached. Host and transport failures resolve without rejecting.
+   * @returns after the host acknowledged the launch; rejects on any failure.
    */
-  async launch(appId: string, path: string): Promise<OpenInAppOutcome> {
-    if (this.operation.getSnapshot().phase === 'busy') return { kind: 'skipped' }
+  async launch(appId: string, path: string): Promise<void> {
+    if (this.operation.getSnapshot().phase === 'busy') return
     this.operation.set({ phase: 'busy', path })
     const body: OpenInAppOpenPayload = { app: appId, path }
     try {
@@ -89,11 +86,9 @@ export class OpenInAppController {
       })
       if (!response.ok) throw new Error(`open failed: HTTP ${String(response.status)}`)
       this.operation.set({ phase: 'idle', path })
-      return { kind: 'opened' }
-    } catch (_error) {
-      // Refusal and transport failure share the same user-visible outcome.
+    } catch (error) {
       this.operation.set({ phase: 'error', path })
-      return { kind: 'failed', failure: 'openError' }
+      throw error
     }
   }
 

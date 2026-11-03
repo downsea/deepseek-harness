@@ -18,9 +18,6 @@
       "path": "../../boot/app-boot"
     },
     {
-      "path": "../../util/official-bundles"
-    },
-    {
       "path": "../webworker-runtime"
     },
     {

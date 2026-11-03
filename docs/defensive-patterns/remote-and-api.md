@@ -93,18 +93,16 @@ The owning package decides and registers its unit, and the controller only reads
 
 ```ts ignore-check
 // packages/workspace/<feature>/src/index.ts: the rule lives with the feature it serves.
-export const durablePageProjectionDefinition = {
+ctx.sessionProjections.register({
   key: 'durablePage',
   stateSchema: durablePageState,
   init: () => ({ durable: false }),
   apply: applyDurablePage,
   stateVersion: 1,
-}
-await ctx.sessionProjections.register(durablePageProjectionDefinition)
+})
 
 // packages/api/session-controller: generic orchestration reads the projected value.
-const durablePage = await ctx.sessionProjections.register(durablePageProjectionDefinition)
-const { durable } = durablePage.stateOf(session)
+const { durable } = ctx.sessionProjections.stateOf(session, 'durablePage')
 ```
 
 The wrong version decides the rule inside the shared layer:

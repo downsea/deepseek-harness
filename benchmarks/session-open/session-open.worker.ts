@@ -3,7 +3,7 @@
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
 import { Context } from '@deepseek-ai/cordis'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionStore, {
@@ -12,7 +12,7 @@ import SessionStore, {
   SessionLogOffset,
   SessionPreparation,
 } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { type AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
@@ -29,8 +29,8 @@ import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import * as SessionTurnOutlinePlugin from '@deepseek-ai/dsh-session-turn-outline'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 // These Host-only adapters have no public Node export and are compiled into the benchmark worker.
-import { HistoryController } from '../../packages/api/session-controller/src/history/controller.ts'
-import { WebController } from '../../packages/api/session-controller/src/web/controller.ts'
+import { SessionHistoryController } from '../../packages/api/session-controller/src/history.ts'
+import { installModelSelectionProjection } from '../../packages/api/session-controller/src/model-selection-projection.ts'
 import { assertBuiltBenchmarkRuntime } from '../support/built-worker.ts'
 import { SYNTHETIC_SESSION_ID } from './session-open.constants.ts'
 
@@ -128,9 +128,11 @@ function memoryDelta(
   }
 }
 
-async function installProjectionSet(ctx: Context): Promise<void> {
+async function installProjectionSet(ctx: Context, agentLoopOwnsBoundary: boolean): Promise<void> {
   // Mirrors projection owners mounted by the base and web-app bundles without timing profile boot.
-  await ctx.sessionProjections.register(agentPresetProjectionDefinition)
+  if (!agentLoopOwnsBoundary) ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+  ctx.sessionProjections.register(agentPresetProjectionDefinition)
+  installModelSelectionProjection(ctx)
   await ctx.plugin(SessionTitleService, {
     fallbackMaxWords: 5,
     fallbackMaxBytes: 40,
@@ -152,7 +154,7 @@ class SessionBenchmarkHost {
   private constructor(
     private readonly ctx: Context,
     private readonly scenario: SessionOpenBenchmarkScenario,
-    private readonly history: WebController | undefined,
+    private readonly history: SessionHistoryController | undefined,
   ) {}
 
   static async create(root: string, scenario: SessionOpenBenchmarkScenario): Promise<SessionBenchmarkHost> {
@@ -161,15 +163,14 @@ class SessionBenchmarkHost {
     if (agentScenario) await mountAgentLoopTestDependencies(ctx)
     else {
       await ctx.plugin(SessionProjectionRegistry)
-      await ctx.plugin(AgentRegistry)
       await ctx.plugin(SessionStore)
     }
-    await installProjectionSet(ctx)
+    await installProjectionSet(ctx, agentScenario)
     await ctx.plugin(JsonlSessionPersistence, { root, compression: 'zstd' })
-    let history: WebController | undefined
+    let history: SessionHistoryController | undefined
     if (scenario === 'first-history') {
       new BenchmarkSessionQuery(ctx)
-      history = new WebController(ctx, new HistoryController(ctx), (observation) => {
+      history = new SessionHistoryController(ctx, (observation) => {
         // First-history ends at snapshot delivery; Agent-resume owns live activation and retention.
         observation[Symbol.dispose]()
       })

@@ -39,14 +39,9 @@
   user-select: none;
 }
 
+.resize:hover,
 .resize:focus-visible {
   background: var(--dsw-alias-interactive-bg-hover);
-}
-
-@media (hover: hover) {
-  .resize:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
 }
 
 .page {

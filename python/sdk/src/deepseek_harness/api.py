@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .client import HarnessClient, HarnessConfig, UserQuestionHandler
+from .client import HarnessClient, HarnessConfig
 from .errors import SdkProtocolError
 from .models import JsonObject, Notification
 
@@ -35,8 +35,6 @@ class DeepSeekHarnessConfig:
     shutdown_timeout_seconds: float | None = 1.0
     base_url: str | None = None
     api_key: str | None = None
-    on_user_question: UserQuestionHandler | None = None
-    approval_requests: bool = False
 
 
 @dataclass(slots=True)
@@ -86,7 +84,6 @@ class DeepSeekHarness:
                 initialize_timeout_seconds=self.config.initialize_timeout_seconds,
                 request_timeout_seconds=self.config.request_timeout_seconds,
                 shutdown_timeout_seconds=self.config.shutdown_timeout_seconds,
-                on_user_question=self.config.on_user_question,
             ),
             _launch_args=_launch_args,
         )
@@ -113,7 +110,6 @@ class DeepSeekHarness:
             model=self.config.model,
             reasoning_effort=self.config.reasoning_effort,
             max_tokens=self.config.max_tokens,
-            approval_requests=self.config.approval_requests,
         )
         self._initialized = True
 

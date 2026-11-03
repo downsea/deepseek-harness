@@ -21,10 +21,8 @@
   cursor: default;
 }
 
-@media (hover: hover) {
-  .root:hover:not(:disabled) {
-    color: var(--dsw-alias-label-secondary);
-  }
+.root:hover:not(:disabled) {
+  color: var(--dsw-alias-label-secondary);
 }
 
 .chevron {
