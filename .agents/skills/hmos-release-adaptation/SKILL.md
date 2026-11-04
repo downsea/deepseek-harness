@@ -1,11 +1,11 @@
 ---
 name: hmos-release-adaptation
-description: Use for a Ticket or issue about a new upstream dsh-v* release tag in this HarmonyOS copy of deepseek-harness. Takes the work from "issue for tag X" to "PR ready for review with evidence" by merging the tag into master on an agent branch, keeping the HMOS delta, running the in-repo gates, the W2 delta self-check and device verification with sa-device-verify, and stopping for a human in the listed cases.
+description: Use for a Ticket or issue about a new upstream dsh-v* release tag in this HarmonyOS copy of deepseek-harness, or about releasing the merged master through hmos-brew-release. Takes an adaptation from "issue for tag X" to "PR ready for review with evidence" by merging the tag into master on an agent branch, keeping the HMOS delta, running the in-repo gates, the W2 delta self-check and device verification with sa-device-verify, and stopping for a human in the listed cases; a separate release Ticket then runs on the merged HEAD.
 ---
 
 # HMOS release adaptation
 
-One upstream release tag in, one reviewable PR out. `master` here = the last adapted upstream tag + the HMOS delta, advanced only by merge PRs that the maintainer merges. You never merge, never push `master`, never force-push, never create tags. Read [`CLAUDE.md`](../../../CLAUDE.md) first (resources, hard rules); the device metrics are in [`scripts/openharmony/METRICS.md`](../../../scripts/openharmony/METRICS.md) and the hazards in [`scripts/openharmony/KNOWN-ISSUES.md`](../../../scripts/openharmony/KNOWN-ISSUES.md).
+One upstream release tag in, one reviewable PR out. `master` here = the last adapted upstream tag + the HMOS delta, advanced only by merge PRs that the maintainer merges. You never merge, never push `master`, never force-push, never create tags. An adaptation Ticket ends at PR ready; a release Ticket runs after the merge (section 11). Read [`CLAUDE.md`](../../../CLAUDE.md) first (resources, hard rules); the device metrics are in [`scripts/openharmony/METRICS.md`](../../../scripts/openharmony/METRICS.md) and the hazards in [`scripts/openharmony/KNOWN-ISSUES.md`](../../../scripts/openharmony/KNOWN-ISSUES.md).
 
 ## 1. Confirm and classify
 
@@ -101,6 +101,21 @@ Pass: every M line in the evidence is ok and `M0 … commit=` equals your head. 
 - Owner mismatch, env file problems, low disk, or a device failure not in `KNOWN-ISSUES.md`.
 - Anything that would touch secrets, the device env file contents, the maintainer's device install, GitHub, `~/code/*`, Gitea settings, or the host disk below the margin.
 
-## 10. Ready
+## 10. Ready (adaptation Ticket)
 
-Add items ⑦–⑨, mark the PR ready, report `ready`. Never merge it; the maintainer merges with a merge commit.
+Add items ⑦–⑨, mark the PR ready, report `ready`. Never merge it; the maintainer merges with a merge commit. No tap write and no release happen on an adaptation Ticket: its device evidence is `sa-device-verify` (M1–M6, section 8) on the PR.
+
+## 11. Release (second Ticket)
+
+A release Ticket starts after the maintainer merged PR N into `master`; `hmos-brew-release` (the instance skill `hmos-release` owns its step protocol and exit codes) refuses when `HEAD` is not `origin/master`. Run on the merged HEAD, one heavy step per section 2; `pnpm install --frozen-lockfile` first when the clone has no `node_modules`:
+
+```sh
+O=~/.cache/dsh-hmos-release
+scripts/openharmony/build-natives.sh . $O/natives
+scripts/openharmony/pack-tree.sh . $O/natives $O                          # tree/oh/dsh-commit.txt = HEAD
+scripts/openharmony/make-node.sh /mnt/linux_share/storage/Users/currentUser/hmos-clt/command-line-tools/node/bin/node $O/node
+scripts/openharmony/pack-bottle.sh --payload-only $O/tree $O/node $O      # prints $O/payload
+hmos-brew-release next --tree $O/payload --pr N
+```
+
+`next` runs one step per call: 0 call it again · 75 wait (`sleep 120`) and call again · 10 paste the printed evidence block on the PR and report `ready` · 1/2 report with the message. The tool signs the payload, smokes it in the agent root, packs the bottle and publishes Gitea release `dsh-<version>` on `nan/homebrew-hmos` with the bottle and `.sha256`, `Formula/dsh.rb` and tag `hmos/<version>` on the merged commit. This copy writes no tap and no bottle directory.
