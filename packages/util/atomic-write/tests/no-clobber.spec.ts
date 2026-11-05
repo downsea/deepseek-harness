@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { renameSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -302,9 +303,12 @@ describe('publishNoClobber exclusive-reservation fallback', () => {
     const root = await tempRoot()
     const { source, target } = await staged(root)
     state.renameFailure = 'EIO'
+    // Allocate the competitor inode before the reservation is replaced: a filesystem
+    // that reuses a freed inode would otherwise make the replacement indistinguishable.
     state.beforeRename = async (path) => {
-      await rm(path)
-      await writeFile(path, 'other writer')
+      const competitor = join(root, 'competitor')
+      await writeFile(competitor, 'other writer')
+      renameSync(competitor, path)
     }
 
     await expect(publishNoClobber(source, target, { fallback: { kind: 'exclusive-reservation' }, source: 'consume', link: refusingLink('EPERM') }))
