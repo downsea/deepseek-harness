@@ -2,7 +2,7 @@
 
 What epic 016 learned the hard way (2026-10-24…26, oh-vm + MOR-M1, HarmonyOS 7.0.0.111, API 26), and what every upstream release must be checked against. Metrics are in [METRICS.md](METRICS.md). Source: the operator's untracked `.issues-local/2026-10-24-dsh-hmos-native/` (`00-epic-sot.md` §3, §7, `04-recipe-w2.md` §4, `05-web-w3b.md`, `06-adaptation-report.md` §6) and epic 006 research `02-adaptation-unit.md` §4.
 
-A device failure that matches nothing here is new: stop and ask (skill `hmos-release-adaptation`), do not retry blindly.
+A device failure that matches nothing here is new: stop and ask (skill `hmos-upstream-merge`), do not retry blindly.
 
 ## 1. Release review inventory
 

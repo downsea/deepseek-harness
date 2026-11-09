@@ -180,7 +180,7 @@ live there). The local Gitea copy, its Super-agent workers and their Tickets are
 
 What makes upstream run natively on the HarmonyOS PC (platform `openharmony`). Review it
 with `git diff <last-merged-tag> master`; keep it on every upstream merge
-([hmos-release-adaptation](.agents/skills/hmos-release-adaptation/SKILL.md)).
+([hmos-upstream-merge](.agents/skills/hmos-upstream-merge/SKILL.md)).
 
 | Area | Commits / paths | What |
 |---|---|---|
