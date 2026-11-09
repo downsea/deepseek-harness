@@ -1,89 +1,369 @@
 # CLAUDE.md
 
-Instructions for agents working in this repository, in particular the Super-agent's workers (DeepSeek Harness loads `AGENTS.md`, then this file). `AGENTS.md` is upstream's and stays untouched; where the two disagree for this repository, **this file wins** (overrides in §2).
+<!-- docs-check: tier=2 -->
 
-## 1. What this repository is
+Guidance for Claude Code (claude.ai/code) when working in this repo.
 
-- **The experiment SOT `nan/deepseek-harness` on the local Gitea** (`http://127.0.0.1:3000`): upstream DeepSeek Harness at the last adapted `dsh-v*` alpha tag, plus the HarmonyOS (HMOS) delta. `master` = tag + delta, advanced only by merge PRs that the maintainer (`nan`) merges with a merge commit.
-- **Gitea only.** `origin` is this Gitea repository; the `upstream` remote, where present, is the Gitea pull mirror of upstream (read-only). Nothing from here goes to GitHub, and you never contact GitHub.
-- **Not** the operator's GitHub fork. The operator's own instructions for that fork (vault ledger, `kms`, `.issues-local/`, sub-agent orchestration, GitHub `origin`) stay in the operator's checkout `~/code/deepseek-harness`; none of it applies here, and you neither read nor write that checkout.
-- Tracker: **Gitea issues and PRs** of this repository. There is no `.issues-local/`, no vault, no `kms`.
+> **Size budget: 65536 bytes for `CLAUDE.md` + `AGENTS.md` combined.** Past it the
+> host truncates the tail silently. Keep only entry index / hard rules / criteria here;
+> detail → `docs/` (upstream's) or the ledger, procedures → `.agents/skills/`. Pointers, not prose.
 
-## 2. Overrides of AGENTS.md here
+@AGENTS.md
 
-| AGENTS.md says | Here |
-|---|---|
-| CI owns exhaustive coverage and the platform matrix | **No CI** (Gitea Actions is off). Your local gates (§6) are the only evidence |
-| `gh stack sync`, stacked branches, `--force-with-lease` | One branch per Ticket, `agent/<ticket-short-name>`; never force-push |
-| `kind/*`, `area/*` labels, native Issue Types | Not in this Gitea; do not create labels |
-| PR descriptions via `dsh-pr-description` | Release PRs use the body of skill `hmos-release-adaptation`; other PRs: what, why, evidence |
-| `CLAUDE.md` symlinks `AGENTS.md` at root | False here: this file is real |
-| Escalate the sandbox for `gh` | `gh` here is the instance's Gitea shim, acting as the agent account |
+The import above is the public, load-bearing agent contract (the same file
+`packages/CLAUDE.md` and `examples/CLAUDE.md` symlink). **For anything
+repo-conventional (layout, gates, testing, docs, commit/PR discipline),
+AGENTS.md wins; the sections below only add the host-local half** per
+`~/code/claude-template.md`, and must never duplicate or contradict it.
 
-## 3. The HMOS delta
+## Constitutional references
 
-What makes upstream run natively on the HarmonyOS PC (platform `openharmony`). Review it with `git diff <last-tag> master`.
+This repo has its own constitutional system — do **not** create the template's
+default trees here. Template concept → this repo's home:
 
-| Area | Commits | What |
+| Template concept | This repo's home | Update when |
+|---|---|---|
+| Positioning / design philosophy | root `AGENTS.md` (identity line, "Pre-stable APIs and released Session data", Conventions) + [docs/defensive-patterns/](docs/defensive-patterns/README.md) | Upstream's files — they move with each upstream merge; a new shipped bug class → defensive-patterns in the same PR |
+| `docs/<proj>-architecture.md` | [docs/architecture.md](docs/architecture.md) (read before changing `packages/`); per-subsystem detail in [docs/subsystems/](docs/subsystems/README.md) | Same PR as any `packages/` behaviour or `agent-loop` change |
+| `docs/adr/` (decisions) | `.agents/notes/{proposed,implemented,rejected}/{class}/yyyy-mm-dd-topic.md` Agent Notes (same-PR rule + format gate in [.agents/notes/README.md](.agents/notes/README.md)); `archived/` is frozen history | Every non-trivial change (same PR); lifecycle dir moves when the decision lands or is rejected |
+| `docs/research/` | Upstream-worthy: an Agent Note in `proposed/`. Cross-stack (dsh × aeu / atd / mem): `~/code/agent-native-stack/docs/research/` (e.g. `2026-08-14-dsh-deep-study/`, `2026-08-19-dsh-rc7-recheck.md`). Local-only: the issue's Context in `.issues-local/` | Before non-trivial work (Research → dev) |
+| `docs/issues/` file tracker | `.issues-local/`（见下节；fork 的 GitHub issues 关闭）；上游通道可用时再 `gh` 上报 | At discovery time; `Status:` on every state change |
+| Stable contracts | Upstream's released Session data only — see [Stable contracts](#stable-contracts) | When upstream declares a stable API |
+| Doc standard | [docs/AGENTS.md](docs/AGENTS.md) — tiers, one home per fact, bilingual pairing, word budgets | Upstream's file — moves with each upstream merge |
+
+Project ledger (cross-session progress): `20-Projects/Active/deepseek-harness.md`
+under the kms default vault, resolved by `kms vault path` on every host — never a
+hardcoded home path. Read it before substantial work (the SessionStart hook injects
+现状 + 下一步); update at session end per the vault's
+`30-Areas/Technology/project-tracking.md` (收工三件事: `kms project log deepseek-harness`
+→ `kms daily log --proj deepseek-harness` → cross-project decisions to
+`80-Meta/Decision-Log.md`). Theory base (Cordiverse paper) is ingested: vault
+`70-Wiki/cordis-meta-framework.md` + 3 sibling pages.
+
+## Research → dev
+
+Non-trivial work is research-first: findings are written down **before**
+implementation, never left in chat history. The doc is what a cold agent reads to
+understand why the design is shaped as it is.
+
+**Doc flow:** research (Agent Note `proposed/`, or an agent-native-stack research doc)
+→ decision (Agent Note `implemented/`, same PR as the code) → work (`.issues-local/NNN`)
+→ source + `docs/architecture.md` + the owning subsystems page.
+
+**Naming:** one dated file — Agent Notes already encode it
+(`{lifecycle}/{class}/yyyy-mm-dd-topic-title.md`, date = first proposed, gated by
+`verify-agent-note-format`); agent-native-stack uses `YYYY-MM-DD-<slug>.md`. A dated
+**directory** with a numbered `NN-<slug>.md` series is reserved for a huge epic (next
+section) or a deliberately ordered series where later parts depend on earlier findings
+(`2026-08-14-dsh-deep-study/` is one).
+
+**Mandatory for:** a new capability seam or provider · adopting an external protocol or
+library · anything that will become an Agent Note · a build-vs-reuse fork (AGENTS.md
+"dependencies over hand-rolling"). **Not for:** bugfixes, mechanical refactors, and work
+an existing Agent Note already covers — cite it.
+
+Findings are host-shaped: say which host a finding was verified on (this checkout is
+oh-vm, an aarch64 openEuler container) and name the ones it wasn't. Fixtures must replay
+on macOS/Linux regardless.
+
+## Work units — task · epic · huge epic
+
+Three sizes. The size decides the ceremony; pick it at the start and state it in the
+issue's `Size:` line.
+
+| Unit | Shape | Tracked by | Exit |
+|---|---|---|---|
+| **Task** | One issue, a few commits on one `local/NNN-<slug>` branch | `.issues-local/NNN` | The issue's `## Exit` |
+| **Epic** | One goal, several issues, one research doc (or Agent Notes cited), one or more sub-agent waves | An umbrella local issue + the research doc | The umbrella issue's `## Exit` |
+| **Huge epic** | Several epics aimed at one very big goal: a new seam family, a port, a rewrite | An umbrella local issue + `.issues-local/YYYY-MM-DD-<slug>/` with an epic SOT (`00-epic-sot.md`, skeleton in `~/code/claude-template.md` Appendix D) | Human end-to-end evaluation on a real dsh session |
+
+The test for "huge" is not size: no existing gate can verify the goal, so the epic needs
+its own metrics. The epic directory lives beside the tracker, not under `docs/`,
+because committed docs are under upstream's doc gates (bilingual triplets, budgets,
+`verify-md-links`) — the same reason the tracker is local.
+
+### Huge epic protocol
+
+Steps are ordered; a later step never starts before the earlier one is recorded.
+
+1. **Charter.** Open the umbrella issue and the directory. The date is the day the
+   epic opens; the directory is never renamed. It holds `README.md` (index of every
+   doc, its status, known disagreements) and `00-epic-sot.md`. The SOT is the single
+   source of truth: read it before touching anything, update it after.
+2. **Research wave.** Every research doc for the epic lives in the directory as the
+   next `NN-<slug>.md`, including mid-epic ones. Sub-agents research in parallel; the
+   orchestrator adjudicates disagreements in the SOT, not in the docs.
+3. **Metrics before code.** Before the first dev wave the SOT's `## Metrics` table is
+   agreed with the human: id, what it measures, the exact command, the baseline
+   measured now, the target, who judges it.
+   - **Wave metrics** — the orchestrator computes them from the tree: focused vitest
+     count, per-file 100% coverage on the changed `src/`, `doc-sync` PASS,
+     `typecheck` / `lint` exit 0, snapshot replay (issue 001's Exit is the model).
+   - **Exit metrics** — only a human on a real session can judge: a real-API e2e with
+     `DEEPSEEK_API_KEY`, a hook round-trip through the dsh Web UI, a canary recall.
+     These go in `## Exit`, never in a wave.
+   Metrics are frozen once wave 1 starts; changing one is a dated SOT decision.
+4. **Dev waves.** Each wave is an epic's worth of work with its own leg(s) in the SOT.
+   Per wave: task spec (below) → sub-agents implement → the orchestrator re-runs the
+   selected checks and scores every wave metric itself → a dated progress row with
+   numbers and commit hashes → commit. A wave that misses a target does not hand off.
+5. **Human e2e exit.** After the last wave the human runs the exit metrics and records
+   the verdict in the SOT ledger. Findings become local issues; the epic stays open
+   until each is fixed and re-verified or deferred by a dated decision.
+6. **Delivery.** The fork does not cut versions — `release(dsh): …` commits are
+   upstream's. Delivery here is one batch: Agent Note(s) for every SOT decision, SOT
+   status → closed with date, umbrella issue → `closed-verified`, upstream-worthy items
+   re-filed when a channel exists, ledger + daily updated.
+
+The orchestrator (the main session) owns steps 1, 3, 5, 6 and the scoring in 4.
+Sub-agents own the research and implementation batches.
+
+## Session orchestration
+
+The main session orchestrates; sub-agents implement and inherit the session's model.
+Pick a cheaper tier only for mechanical batches, never for research, adjudication, or
+wave scoring.
+
+- **Main session owns:** requirement shaping, architectural decisions, task specs,
+  verification (re-run the selected checks yourself before committing, never on a
+  sub-agent's word), commits and pushes, ledger / daily / SOT records, and anything
+  touching root `.env`, `~/.claude/settings.json`, or other live user config.
+- **Sub-agents own:** research sweeps and implementation batches against the working
+  tree.
+- **Stays in the main session:** one-liners, doc touch-ups, read-only spot checks.
+
+**Task spec** — what makes a wave land the first time:
+
+1. **Required reading:** **AGENTS.md first**, then `docs/architecture.md`, the relevant
+   Agent Notes, the local issue, exemplar source files. The agent reads before it
+   touches.
+2. **Environment traps:** `test:coverage` not `test` is the coverage gate; e2e
+   self-skips without `DEEPSEEK_API_KEY`; snapshot fixtures must replay cross-platform;
+   `typecheck` / `lint` / `doc-typecheck` build `lib/types` first — never call a
+   `*:contracts-ready` script directly; committed docs are bilingual triplets
+   (`.md` + `.zh.md` + `.i18n.yaml`) and `doc-sync` rejects an unpaired edit; the
+   node build-slot check in Build & Test, copied verbatim (the host's cargo shim does
+   not gate node).
+3. **Hard boundaries:** no commits (the main session commits after verification); root
+   `.env` read-only; `.issues-local/` and the SOT are main-session files; never
+   `git stash`.
+4. **Return format:** file list, the exact checks run with their numbers, sample
+   outputs, and "spec deviations with reasons". Deviations are argued, not silent.
+5. **Interrupted ≠ lost.** A sub-agent that died mid-task is resumed from its
+   transcript with "check `git status`, reconcile against the spec, continue", never
+   restarted over a live tree.
+6. **New facts go to the running agent** as a follow-up message, not saved for after.
+
+## What this checkout is
+
+`~/code/deepseek-harness` is **the `downsea` fork of upstream `deepseek-ai/deepseek-harness`:
+the home of dsh's HarmonyOS (HMOS) delta, and of host-local development and research on
+dsh** (capability seams, session persistence, the hooks bridge, mem × dsh integration).
+`origin` is the fork (GitHub `downsea/deepseek-harness`), `upstream` is DeepSeek's.
+`master` = the last merged upstream `dsh-v*` release tag, plus the HMOS delta (next
+section) and the `chore(local)` files. It advances by merging the next upstream release tag into it
+(a development task, done by a human or an agent session here) and pushing `master` to
+`origin` fast-forward. What dsh itself is, AGENTS.md says.
+
+It is **not** upstream's development line: GitHub issues are disabled on the fork,
+releases are upstream's, and upstream-worthy work is re-filed there when a channel
+exists. It is **not** the HMOS release path either: building, signing, the device smoke,
+the bottle, the formula and publication to the GitHub tap `downsea/homebrew-hmos` are
+done only by `~/code/homebrew-hmos` `scripts/hmos-bundle run dsh`, run by the maintainer
+as `nan` (the engine `hmos-brew-release` and `packages/dsh/post_install/dsh-deploy.rb`
+live there). The local Gitea copy, its Super-agent workers and their Tickets are retired
+(homebrew-hmos issue 003); commits such as `Merge pull request … from agent/…` in
+`master`'s history are from that era. It is not a place for host-only files in git:
+`start-local.sh` and `.issues-local/` stay excluded.
+
+## HMOS delta
+
+What makes upstream run natively on the HarmonyOS PC (platform `openharmony`). Review it
+with `git diff <last-merged-tag> master`; keep it on every upstream merge
+([hmos-release-adaptation](.agents/skills/hmos-release-adaptation/SKILL.md)).
+
+| Area | Commits / paths | What |
 |---|---|---|
 | Publish without hard links | `152df123be`, `e0685f90fa` | `packages/util/atomic-write` no-clobber publish; `link()` `EPERM`/`EACCES` = no hard links; attachment fsync stops at the sandbox |
 | Platform support | `8a32f6d895` | flock (`native/system`) knows `openharmony`; `bash-local` / `bash-sandbox` `shellPath`; `userInfo()` guard |
 | Procfs | `530cb707d6` | `hasLinuxProcfs()` covers `openharmony` |
-| Device recipe | `scripts/openharmony/` | NDK natives, self-signed node, packed tree, deploy, smoke, runner — see its [README](scripts/openharmony/README.md) |
+| Device recipe | `scripts/openharmony/` | NDK natives, self-signed node, packed tree, deploy, smoke, brew payload — see its [README](scripts/openharmony/README.md) |
 | Agent Notes | `.agents/notes/proposed/architecture/2026-10-24-*` | no-clobber publish, openharmony host platform |
+| Repository-owned | `CLAUDE.md`, `scripts/openharmony/**`, `.agents/skills/hmos-*`, `.docs-check.toml`, `scripts/docs-gate.py` | ours on every merge conflict |
 
-Hazards and the per-release review inventory: [`scripts/openharmony/KNOWN-ISSUES.md`](scripts/openharmony/KNOWN-ISSUES.md). Device metrics M1–M6, E1–E3: [`scripts/openharmony/METRICS.md`](scripts/openharmony/METRICS.md).
+Hazards and the per-release review inventory:
+[`scripts/openharmony/KNOWN-ISSUES.md`](scripts/openharmony/KNOWN-ISSUES.md). Device
+metrics M1–M6, E1–E3: [`scripts/openharmony/METRICS.md`](scripts/openharmony/METRICS.md).
+`master` follows the **latest upstream release** — the newest `dsh-v*` tag by release
+date, alpha, rc or final; a newest release that sits behind `master`'s line is reported,
+not back-merged.
 
-## 4. Release adaptation
+## Build & Test
 
-A Ticket about a new upstream `dsh-v*` tag: **load skill `hmos-release-adaptation`** ([SKILL.md](.agents/skills/hmos-release-adaptation/SKILL.md)) and follow it, from "issue for tag X" to "PR ready with evidence". The flow follows the latest upstream release — the newest `dsh-v*` tag by release date, including rc and final tags — not only the alpha line; a newest release that sits behind `master`'s line is reported, not back-merged.
+There is no universal local gate here by design. Commands are in AGENTS.md; which ones
+to run for a given diff is decided by
+[dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md): the narrowest
+test or check that would fail for the regression, `doc-sync` for docs, `build` +
+hygiene + the built smoke for published paths, real-API e2e for provider behaviour.
+Git hooks are the only automatic baseline — pre-commit: staged lint / whitespace /
+vendor manifest guard; pre-push: `pnpm run typecheck`. CI owns the full matrix.
 
-## 5. Resources (this machine is shared, 9 GB RAM)
+- `pnpm run test:coverage`, not `test` — the CI coverage gate (per-file 100% on
+  `packages/*/*/src`; [why](docs/testing.md)). Focus it with
+  `--coverage.include='packages/<group>/<pkg>/src/**/*.ts'`.
+- `pnpm run test:e2e` self-skips without `DEEPSEEK_API_KEY` (root `.env`) — a green run
+  without a key proves nothing.
+- `pnpm run doc-sync` — every documentation gate; run it whenever an Agent Note,
+  catalog, README, or doc-linked comment changed.
+- Never `--passWithNoTests`, lower thresholds, or narrow `--coverage.include` to hide an
+  uncovered file.
 
-You do not see the host's own build rules, so they are restated here.
+Repo-specific knobs (the generic rules are host rules, below):
 
-- **One heavy job per machine.** Heavy = `pnpm install`, `typecheck`, `lint`, tests, `build:*`, `pack-tree.sh`, natives builds, anything cargo. Before one: `pgrep -x cargo || pgrep -x rustc || pgrep -x box64` **and** `pgrep -xa node | grep -E 'vitest|tsc|tsdown|vite|tsx'` must print nothing; otherwise wait (`sleep 60` as a background job) and check again. The dsh Web server is node but not a build: ignore it. Your own gates and the device runner must not overlap either.
-- **Memory.** From 0.2.2-alpha.2 `typecheck` and `build:artifacts` run 8 GiB compiler heaps: run them alone. `build:artifacts --serial` exists for that. An OOM kill (`Killed`, exit 137, "heap out of memory") is an environment failure, not a code defect: re-run once with nothing else running. Full `pnpm run lint` is OOM-killed here: lint changed paths with `pnpm exec tsx scripts/run-oxlint.ts <paths>`.
-- **Time.** A foreground command over 5 s becomes a background job; a background job is killed 30 minutes after your turn ends. Split long work into steps that each finish well inside that (the device runner does this for you).
-- **Disk.** The host disk behind `/mnt/linux_share/storage/Users/currentUser` is the one that matters (`df /` lies; a full host disk zeroes files). Check `~/.bin/disk-guard.sh --check` (exit 0) before installs and builds. Never put worktrees or build trees in `/tmp` (a 4.9 GB tmpfs). Remove build output you created when the Ticket ends.
-- **Never `git stash`**; never rewrite shared history.
+- **The host build slot gates only `cargo`; here the heavy runs are node.** Before a
+  heavy build or test run: `pgrep -xa node | rg 'vitest|tsc|tsdown|vite|tsx'`;
+  non-empty ⇒ wait and re-check every ~60 s. The dsh Web server and TCP forwarder
+  from `start-local.sh` are also `node` — they are not builds; ignore them. hvigor builds
+  from other sessions show as `box64`: `pgrep -x cargo || pgrep -x rustc || pgrep -x box64`
+  must be empty as well.
+- **Memory (oh-vm, ~8–9 GB, shared).** From 0.2.2-alpha.2 `typecheck` and
+  `build:artifacts` run 8 GiB compiler heaps: run them alone, with
+  `DSH_GATE_CONCURRENCY=1` (the pre-push hook's `typecheck` included — a push was
+  OOM-killed once without it); `build:artifacts --serial` exists. Full `pnpm run lint` is
+  OOM-killed here: lint changed paths with `pnpm exec tsx scripts/run-oxlint.ts <paths>`.
+  `Killed` / exit 137 / "heap out of memory" is an environment failure, not a code defect:
+  re-run once with nothing else running.
+- **Repo purge is `pnpm run clean`** (`node_modules/` + per-package `lib/` +
+  `coverage/` + the VitePress build are the bulk). **Purges break checks that expect
+  built `lib/`**: rebuild (`pnpm run build:lib`) before triaging a built-`lib/` smoke
+  failure as a code defect. A `node_modules` purge is not a free `pnpm install` on
+  oh-vm — native addons (node-pty) needed hand steps last time; read the ledger's
+  2026-08-14 entry first.
 
-## 6. Gates
+Build slot, disk hygiene, the global cargo profile and OOM triage are host rules — see
+the host-level `~/.claude/CLAUDE.md` ("Builds on a shared machine"). New Rust repo
+conventions: nan-fedora `docs/rust-build.md`.
 
-Run what covers your change, one at a time per §5:
+## Design principles — at-hand summary
 
-| Gate | Command |
+The principles are AGENTS.md "Conventions" (imported above — not restated here, per
+the no-duplication rule at the top) plus
+[docs/defensive-patterns/](docs/defensive-patterns/README.md) (read before lifecycle,
+concurrency, subprocess, or teardown work). The ones most often re-argued in fork work,
+by name only: everything is a plugin / plugins, not loop changes · model-visible ⟺
+logged · explicit > implicit at package boundaries · no hardcoded tunables in plugins ·
+misconfiguration fails loud · prefer maintained dependencies over hand-rolling.
+
+## Stable contracts
+
+Upstream's only: AGENTS.md "Pre-stable APIs and released Session data" — public APIs
+are pre-stable, released Session data migrates by adjacent version-named successors.
+The fork adds no contract of its own. Host consumers (mem-cli's hook scripts via the
+`hooks-claude-code` bridge) track upstream as-is; a break there is a local issue plus a
+mem-cli issue, not a contract violation. Revisit at the first tagged release.
+
+## Current project state
+
+- **master = upstream `dsh-v0.2.2-rc.1` + the HMOS delta** (merge `7a2ddf0f4c`,
+  2026-11-04; `origin/master` fast-forwarded from `af70abfe65` on 2026-11-09). The PC runs
+  it as the harmonybrew package `dsh 0.2.2-rc.1`, released by homebrew-hmos `hmos-bundle`.
+  `master` now advances by merging upstream tags, no longer by rebasing; the
+  sandbox `writablePaths` change (issue 001) was dropped at the 2026-10-24 rebase, and
+  `backup/master-pre-0.2.1` (local only) and `backup/master-pre-rc7` keep earlier lines.
+- **Active:** huge epic 016 — dsh running natively on the HarmonyOS PC
+  (`process.platform === "openharmony"`); SOT `.issues-local/2026-10-24-dsh-hmos-native/`,
+  the delta is on `master` (previous section), device recipe in `scripts/openharmony/`.
+- **Paused:** mem × dsh via the `hooks-claude-code` bridge (needs `danger-full-access`
+  again after the `writablePaths` drop; issue 005). Open local issues 002–015.
+- **Dormant:** Cordiverse-paper reusable points → concrete tasks; trigger is the user
+  confirming `/paper-to-project` (ledger 下一步).
+
+## Hard rules
+
+- Root `.env` (where `DEEPSEEK_API_KEY` is read from when present) is read-only for
+  agents and never printed.
+- `.issues-local/` and `start-local.sh` are excluded via `.git/info/exclude` (not
+  `.gitignore` — that file is upstream's); they never appear in commits. Do not add
+  host-only files anywhere else.
+- Local development happens on `local/NNN-<slug>` off `master`; the main session
+  verifies and commits per AGENTS.md. No `git stash`, no raw `--force`.
+- `master` reaches `origin` by fast-forward push only (re-fetch first; never force-push,
+  never rewrite pushed history). No tags here: `dsh-v*` tags are upstream's, HMOS release
+  tags are homebrew-hmos's.
+- Nothing in this repository builds a release payload for publication, signs a bottle,
+  writes the tap or publishes a release; that is homebrew-hmos `hmos-bundle`, run by the
+  maintainer.
+- The HarmonyOS PC is the maintainer's real machine. Device steps (`push-env.sh`,
+  `deploy.sh`, `smoke.sh`) run only when the task calls for device verification, one heavy
+  job at a time; never print the device env file.
+- `vendor/` changes only through the sync procedure in `vendor/README.md`.
+
+## Cross-repo development
+
+mem × dsh work spills into siblings; a gap belongs to the repo that owns it, filed there
+and back-linked from the local issue:
+
+| Concern | Owning repo |
 |---|---|
-| Install | `pnpm install --frozen-lockfile` |
-| Typecheck | `pnpm run typecheck` |
-| Lint | `pnpm exec tsx scripts/run-oxlint.ts <changed paths>` |
-| Tests | `pnpm exec vitest run <owning tests> --coverage --coverage.include='packages/<group>/<pkg>/src/**/*.ts'`; `node --test` in `native/system` |
-| Docs | `pnpm run doc-sync`; this file's own gate `python3 scripts/docs-gate.py` |
+| hooks bridge behaviour, sandbox policy, session log | this repo (`.issues-local/`) |
+| HMOS delta, device recipe (`scripts/openharmony/`) | this repo (`.issues-local/`) |
+| HMOS release: engine, signing, device smoke, bottle, formula, tap | `~/code/homebrew-hmos` (`docs/issues/`) |
+| mem hook scripts, transcript adapter (mem-cli#1), `mem install` | `~/code/mem-cli` |
+| cross-stack research (dsh × aeu / atd / mem) | `~/code/agent-native-stack/docs/research/` |
 
-A red gate that is also red on the pristine upstream tag is `upstream`: record it, do not fix it. Never lower thresholds, `--passWithNoTests`, or narrow coverage to hide a file.
+One sub-agent per sibling repo: it reads that repo's `CLAUDE.md` and issue conventions
+first and verifies against that repo's gate. Drafts for upstream live in
+`~/.dsh-mem/dsh-issue-drafts.md` until a channel exists.
 
-## 7. Device
+## Usage-time feedback
 
-The HarmonyOS PC is the maintainer's real machine. You reach it **only** through `scripts/openharmony/sa-device-verify` (`--dry-run next` to read the plan, then `next` once per background job). It deploys to the agent root `/data/storage/el2/base/dsh-sa` (owner `superagent-dsh`) with a key-free env file; it never touches the maintainer's root `/data/storage/el2/base/dsh`, his `.env.private`, `~/.zshrc` or oh config. Never run `ssh`, `scp`, `hdc` or `oh` yourself, never `deploy.sh` / `push-env.sh` / `smoke.sh` by hand, never open apps or the browser on the PC. Exit codes and what to do: the skill, §8.
+When using `dsh` as a tool (any session, any repo) and hitting a bug or missing
+capability: file it at discovery time, before working around it; the issue names the
+workaround. **This fork has GitHub issues disabled** — file to the local tracker below;
+upstream-worthy items get re-filed upstream when a channel exists. Name the skill or
+job that hit it.
 
-The PC's dsh install itself is the harmonybrew package `downsea/hmos/dsh`: [`pack-bottle.sh`](scripts/openharmony/pack-bottle.sh) `--payload-only` assembles the payload, the release tool `hmos-brew-release` (`nan/dsh-superagent` `tools/hmos`, ADR-0006) signs it, smokes it, packs it as the bottle and renders the formula, and `brew install` / `brew upgrade` replaces `/data/storage/el2/base/dsh` in place and verifies the new tree with `dsh --version`.
+## Local issue tracker
 
-## 8. Evidence on the PR
+`.issues-local/NNN-<slug>.md` — file-based, per `~/code/claude-template.md`
+Appendix B (Status / Severity / Labels / **Size** / Context / Items / Exit; append-mostly;
+`closed-verified` means exit criteria re-run). Numbering is 3-digit sequential; the
+creation date goes in the `Status:` line. Labels: `needs-triage` / `needs-info` /
+`ready-for-agent` / `ready-for-human` / `wontfix`, plus this fork's `upstream-worthy`.
+An issue without `## Exit` is `needs-info`.
 
-Every PR body states what changed, why, and the evidence: commands with exit codes and wall clock, each red classified (`upstream` / `adaptation` / `environment`), and for release PRs the nine items of the skill (conflicts, review table, `delta-check.sh` output, gates, the `sa-device-verify` evidence block, skipped tags, cost, open questions). Paste outputs verbatim; never paraphrase a number.
+## Commit style
 
-## 9. Hard rules
+Upstream's conventional commits, scope = package short name or area:
 
-- No secrets in commits, logs, PR text or comments. Do not read `~/.env.private`, `~/.config/gh*`, `~/.ssh`, `~/.hermes`, the Gitea admin CLI, or the device's credential files.
-- No `kms`, no vault, nothing under `~/code/*`, no GitHub, no other hosts. Write only in your Ticket directory, the runner's caches (`~/.cache/dsh-sa-hmos`) and the agent root it manages (tool caches such as the pnpm store aside).
-- Never push `master`, never merge, never force-push, never create or move tags, never change Gitea settings, users or protections.
-- Never edit `AGENTS.md` or other upstream files outside the HMOS delta, except as an adapted hunk listed in the PR body.
-- Never write `~/.config/dsh-sa/` (the device env file and the recipe approvals are the maintainer's).
+```
+feat(session): …   fix(llm-deepseek): …   docs: …   test: …   refactor: …
+chore(local): …    ← host-local-only changes (this file, tracker plumbing)
+merge(hmos): <tag> into master   ← an upstream release merge; the body lists each
+                                   conflicted path with the rule used
+```
 
-## 10. When to stop and ask
+Attribution is disabled globally: do not add `Co-Authored-By` / generated-with
+footers to commits or PR bodies unless explicitly asked.
 
-Ask one concrete question on the issue (`human_action`) and wait when: the tag cannot be classified or moved; keeping HMOS behaviour needs a design choice or a change outside the delta; you would drop an HMOS behaviour because upstream covers it; a native pin drifts to a new major or minor; an adaptation red survives two fix attempts; your change touches the device recipe; `sa-device-verify` exits 2 (sshd down, recipe approval, owner, env file, disk, repeated failure or yield); anything would touch secrets, the maintainer's install (other than the dsh `brew install` / `brew upgrade` of §7), GitHub, `~/code/*` or Gitea settings.
+## New work checklist
 
-## 11. Commits
-
-Upstream's conventional commits (`feat(<scope>): …`, `fix(…)`, `docs(…)`, `chore(…)`). The release merge commit is `merge(hmos): <tag> into master` and lists each conflicted path with its rule. No `Co-Authored-By` lines.
+- [ ] Work sized (task / epic / huge epic) and stated in the local issue; a huge epic
+      has its directory, SOT, and agreed metrics **before** wave 1
+- [ ] Non-trivial work → an Agent Note (or agent-native-stack research doc) before
+      implementation, or an existing one cited
+- [ ] Non-trivial change → Agent Note added or updated in the same PR; `packages/`
+      behaviour or loop change → `docs/architecture.md` + owning subsystems page
+- [ ] Model- or user-visible output changed → keyless snapshot via a real runnable
+      example; loop / `SessionEventMap` change → both SDK expected outputs
+- [ ] Committed docs edited as bilingual triplets; `pnpm run doc-sync` green
+- [ ] Upstream merge: HMOS delta intact (`scripts/openharmony/delta-check.sh` PASS)
+- [ ] Per-file 100% coverage on changed `src/`; every changed acceptance path has a
+      rejection case
+- [ ] The selected checks pass, run by the main session on the mixed tree
+- [ ] Local issue updated (`Size`, Items, Exit); a sibling-repo gap filed there and
+      back-linked
+- [ ] No secret in a commit, log, or `--dry-run`; no host-only file staged
+- [ ] `CLAUDE.md` + `AGENTS.md` still under the 65536-byte budget (`wc -c`); anything
+      added here is entry index / hard rule / criterion, or it went elsewhere
+- [ ] Vault ledger + daily updated (`kms project log deepseek-harness`)
