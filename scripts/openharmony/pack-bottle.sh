@@ -6,14 +6,14 @@
 #   <node-out>  a make-node.sh output (uses <node-out>/bin/node)
 #   <out>       receives payload/: tree/, node/bin/node, bin/{oh-env.sh,dsh,dsh-web}, VERSION, deploy-payload.sh
 #
-# Prints the payload directory. The release tool in nan/dsh-superagent tools/hmos (hmos-brew-release) signs the
+# Prints the payload directory. The release engine hmos-brew-release in homebrew-hmos (scripts/) signs the
 # tree, smokes it on the device, packs it as the bottle and renders Formula/dsh.rb; this script writes no tarball,
 # no formula and nothing outside <out>.
 #
 # The payload is the install scripts/openharmony/deploy.sh writes to the default root. brew/deploy-payload.sh is
 # the package's deployer: hmos-brew-release carries it beside libexec/dsh-payload.tar.gz and runs it from
 # post_install. Its interface `deploy-payload.sh <payload.tar.gz> [<root>]` and the default root
-# /data/storage/el2/base/dsh are a contract with nan/dsh-superagent tools/hmos/post_install/dsh-deploy.rb; change
+# /data/storage/el2/base/dsh are a contract with homebrew-hmos packages/dsh/post_install/dsh-deploy.rb; change
 # them together.
 #
 # Environment:

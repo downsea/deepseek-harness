@@ -17,12 +17,13 @@
 #                    --profile must be spelled out rather than abbreviated as `dsh <name>`
 # The tree is unpacked next to the old one and swapped in with mv; the old tree is then removed.
 #
-# Second root: a DSH_OH_ROOT other than the default is a self-contained install for another owner (e.g. the
-# Super-agent's verification root /data/storage/el2/base/dsh-sa). Its tmp, home, agents and Web documents live under the
-# root (bin/root.patch.yml sets the documents directory); bin/oh-env.sh loads <root>/env (push-env.sh --root) instead
-# of $BASE/.env.private, and oh's env.sh only when that file sets DSH_OH_WITH_OH=1; ~/.zshrc is never edited; only
-# processes under the root block the deploy. DSH_OH_OWNER (default "maintainer") must match <root>/.owner, which the
-# first deploy of a second root writes; the default root belongs to the maintainer. The default root deploys as before.
+# Second root: a DSH_OH_ROOT other than the default is a self-contained install for another owner (e.g. a development
+# build verified on /data/storage/el2/base/dsh-dev during an upstream merge). Its tmp, home, agents and Web documents
+# live under the root (bin/root.patch.yml sets the documents directory); bin/oh-env.sh loads <root>/env (push-env.sh
+# --root) instead of $BASE/.env.private, and oh's env.sh only when that file sets DSH_OH_WITH_OH=1; ~/.zshrc is never
+# edited; only processes under the root block the deploy. DSH_OH_OWNER (default "maintainer") must match <root>/.owner,
+# which the first deploy of a second root writes; the default root belongs to the maintainer. The default root deploys
+# as before.
 . "$(dirname "$0")/lib.sh"
 [ $# -eq 3 ] || die "usage: deploy.sh <tree> <node-out> <host-alias>"
 TREE=$(cd "$1" && pwd); NODE=$(cd "$2" && pwd)/bin/node; HOST=$3

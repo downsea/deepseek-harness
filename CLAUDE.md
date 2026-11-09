@@ -182,11 +182,11 @@ What makes upstream run natively on the HarmonyOS PC (platform `openharmony`). R
 with `git diff <last-merged-tag> master`; keep it on every upstream merge
 ([hmos-upstream-merge](.agents/skills/hmos-upstream-merge/SKILL.md)).
 
-| Area | Commits / paths | What |
+| Area | Commits (by subject) / paths | What |
 |---|---|---|
-| Publish without hard links | `152df123be`, `e0685f90fa` | `packages/util/atomic-write` no-clobber publish; `link()` `EPERM`/`EACCES` = no hard links; attachment fsync stops at the sandbox |
-| Platform support | `8a32f6d895` | flock (`native/system`) knows `openharmony`; `bash-local` / `bash-sandbox` `shellPath`; `userInfo()` guard |
-| Procfs | `530cb707d6` | `hasLinuxProcfs()` covers `openharmony` |
+| Publish without hard links | `feat(atomic-write)`, `fix(atomic-write)` | `packages/util/atomic-write` no-clobber publish; `link()` `EPERM`/`EACCES` = no hard links; attachment fsync stops at the sandbox |
+| Platform support | `feat(node-addon-system): support the openharmony host platform` | flock (`native/system`) knows `openharmony`; `bash-local` / `bash-sandbox` `shellPath`; `userInfo()` guard |
+| Procfs | `feat(subprocess-local): use the Linux procfs inspector on openharmony` | `hasLinuxProcfs()` covers `openharmony` |
 | Device recipe | `scripts/openharmony/` | NDK natives, self-signed node, packed tree, deploy, smoke, brew payload — see its [README](scripts/openharmony/README.md) |
 | Agent Notes | `.agents/notes/proposed/architecture/2026-10-24-*` | no-clobber publish, openharmony host platform |
 | Repository-owned | `CLAUDE.md`, `scripts/openharmony/**`, `.agents/skills/hmos-*`, `.docs-check.toml`, `scripts/docs-gate.py` | ours on every merge conflict |
@@ -264,11 +264,12 @@ mem-cli issue, not a contract violation. Revisit at the first tagged release.
 
 ## Current project state
 
-- **master = upstream `dsh-v0.2.2-rc.1` + the HMOS delta** (merge `7a2ddf0f4c`,
-  2026-11-04; `origin/master` fast-forwarded from `af70abfe65` on 2026-11-09). The PC runs
-  it as the harmonybrew package `dsh 0.2.2-rc.1`, released by homebrew-hmos `hmos-bundle`.
-  `master` now advances by merging upstream tags, no longer by rebasing; the
-  sandbox `writablePaths` change (issue 001) was dropped at the 2026-10-24 rebase, and
+- **master = upstream `dsh-v0.2.2-rc.1` + the HMOS delta** (merged
+  2026-11-04; `origin/master` fast-forwarded to it from the fork's previous `master` on
+  2026-11-09). The PC runs it as the harmonybrew package `dsh 0.2.2-rc.1`, released by
+  homebrew-hmos `hmos-bundle`. `master` now advances by merging upstream tags, no longer
+  by rebasing; the sandbox `writablePaths` change (issue 001) was dropped at the
+  2026-10-24 rebase, and
   `backup/master-pre-0.2.1` (local only) and `backup/master-pre-rc7` keep earlier lines.
 - **Active:** huge epic 016 — dsh running natively on the HarmonyOS PC
   (`process.platform === "openharmony"`); SOT `.issues-local/2026-10-24-dsh-hmos-native/`,

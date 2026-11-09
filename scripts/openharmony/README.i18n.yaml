@@ -12,11 +12,11 @@
   en: 7e899275bdfac1dd
   zh: 6a2737e20c61e3c3
 /openharmony-device-recipe/brew-package:
-  en: ffa4390d5ff17cfd
-  zh: e493089d648a5947
+  en: d8e8ebadbdb6db52
+  zh: 9b161d131b3c6595
 /openharmony-device-recipe/scripts:
-  en: 2a5013c1aece767c
-  zh: afd6aa4669092371
+  en: bbdc6fded587be7d
+  zh: af6ad81437a89aec
 /openharmony-device-recipe/addon-placement:
   en: d5fa21cc016c1da7
   zh: 08fec8794a0d957c
@@ -30,8 +30,8 @@
   en: ba28f873fc2b9ce9
   zh: b1c93e28c59ece8e
 /openharmony-device-recipe/second-device-root:
-  en: e65a641b6573e54a
-  zh: 914b1d1c8da5cd53
+  en: fa7850aa70b4ab1c
+  zh: 964cc957b4813be4
 /openharmony-device-recipe/constraints:
   en: 8e6b4ba9cfdb14e5
   zh: 8c5fffc78869a7ec

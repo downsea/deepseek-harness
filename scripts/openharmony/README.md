@@ -33,13 +33,13 @@ $R/smoke.sh --m3 --m6 hmos
 
 ## Brew package
 
-The PC's install is the harmonybrew package. `pack-bottle.sh --payload-only` assembles the payload the package deploys — the install `deploy.sh` writes to the default root: `tree/`, `node/bin/node` and `bin/{oh-env.sh,dsh,dsh-web}` — so a package upgrade replaces `/data/storage/el2/base/dsh` in place and the `~/.zshrc` PATH block keeps working. The release tool `hmos-brew-release` (`nan/dsh-superagent` `tools/hmos`, ADR-0006) signs the payload, smokes it on the device, packs it as the bottle and renders `Formula/dsh.rb`; its `post_install` runs the payload's `brew/deploy-payload.sh`, which verifies the queued tree (`oh/SHA256SUMS`, then `dsh --version` from the staged copy), swaps it in, and refuses while a dsh from the root runs.
+The PC's install is the harmonybrew package. `pack-bottle.sh --payload-only` assembles the payload the package deploys — the install `deploy.sh` writes to the default root: `tree/`, `node/bin/node` and `bin/{oh-env.sh,dsh,dsh-web}` — so a package upgrade replaces `/data/storage/el2/base/dsh` in place and the `~/.zshrc` PATH block keeps working. The release engine `hmos-brew-release` in `~/code/homebrew-hmos` (`scripts/`) signs the payload, smokes it on the device, packs it as the bottle and renders `Formula/dsh.rb`; its `post_install` (`packages/dsh/post_install/dsh-deploy.rb` there) runs the payload's `brew/deploy-payload.sh`, which verifies the queued tree (`oh/SHA256SUMS`, then `dsh --version` from the staged copy), swaps it in, and refuses while a dsh from the root runs.
 
 ```sh
 $R/pack-bottle.sh --payload-only $W/out/tree $W/node $W/bottle
 ```
 
-The command writes `$W/bottle/payload/` and prints it. A release Ticket passes that directory to `hmos-brew-release next --tree $W/bottle/payload --pr <merged PR>`; the tool writes the bottle, `Formula/dsh.rb` and the Gitea release, and this repository has no path that writes a tap or a bottle directory.
+The command writes `$W/bottle/payload/` and prints it. A release is the maintainer's `scripts/hmos-bundle run dsh` in homebrew-hmos: it runs the recipe on this fork's pushed `master` and hands the payload to the engine, which writes the bottle, `Formula/dsh.rb` and the GitHub release on `downsea/homebrew-hmos`. This repository has no path that writes a tap or a bottle directory.
 
 On the PC: `brew update && brew install downsea/hmos/dsh`, later `brew upgrade dsh`; then `dsh --version` and `dsh-web`. `ROOT` overrides the deployment root the launchers name.
 
@@ -59,8 +59,7 @@ On the PC: `brew update && brew install downsea/hmos/dsh`, later `brew upgrade d
 | `device-smoke.cjs` | M1 on the device: loads each addon through its package's own loader and requires the mapped file to be inside the tree; resolves `rg` through `@vscode/ripgrep` inside the tree and runs it | Each failed check adds one to the exit status |
 | `m6-terminal.mjs` | M6 on the device: spawns `/bin/sh` and `/usr/bin/zsh` terminals through `dsh-subprocess-local`, checks echo, resize and close, and prints the activity state while idle and while `sleep` runs | Each failed check adds one to the exit status |
 | `m3-inspect.cjs` | Prints the tool calls and results of the newest session log under a dsh home | No session log exists |
-| `sa-device-verify` | Runs the recipe for one commit against the agent root, one step per call, and prints the evidence | See Second device root |
-| `delta-check.sh <tag>` | Compares the delta a release-merge head carries with the delta on `master` | A path or changed line differs and is not listed |
+| `delta-check.sh <tag>` | Compares the delta an upstream-merge head carries with the delta on `master` (skill `hmos-upstream-merge`) | A path or changed line differs and is not listed |
 
 ## Addon placement
 
@@ -96,7 +95,7 @@ On the PC: `brew update && brew install downsea/hmos/dsh`, later `brew upgrade d
 
 ## Second device root
 
-A `DSH_OH_ROOT` other than the default is a second, self-contained root for another owner: the Super-agent verifies releases on `/data/storage/el2/base/dsh-sa` (owner `superagent-dsh`) and never touches the default root. For a second root, `deploy.sh` keeps `tmp`, `home`, `agents` and the Web `documents` under the root (`bin/root.patch.yml` sets the documents directory), makes `bin/oh-env.sh` load `<root>/env` instead of `/data/storage/el2/base/.env.private`, loads oh's `env.sh` only when that file sets `DSH_OH_WITH_OH=1`, leaves `~/.zshrc` alone, and refuses only while a process under the root runs. The first deploy writes `<root>/.owner`; `deploy.sh`, `push-env.sh --root` and `smoke.sh` refuse when `DSH_OH_OWNER` (default `maintainer`) differs, and the default root accepts only `maintainer`.
+A `DSH_OH_ROOT` other than the default is a second, self-contained root for another owner or purpose. Once the harmonybrew package owns the default root, a development build is verified on a second root, such as `/data/storage/el2/base/dsh-dev` with owner `nan` during an upstream merge, so the released install stays untouched. For a second root, `deploy.sh` keeps `tmp`, `home`, `agents` and the Web `documents` under the root (`bin/root.patch.yml` sets the documents directory), makes `bin/oh-env.sh` load `<root>/env` instead of `/data/storage/el2/base/.env.private`, loads oh's `env.sh` only when that file sets `DSH_OH_WITH_OH=1`, leaves `~/.zshrc` alone, and refuses only while a process under the root runs. The first deploy writes `<root>/.owner`; `deploy.sh`, `push-env.sh --root` and `smoke.sh` refuse when `DSH_OH_OWNER` (default `maintainer`) differs, and the default root accepts only `maintainer`.
 
 | Variable or option | Effect |
 |---|---|
@@ -107,7 +106,7 @@ A `DSH_OH_ROOT` other than the default is a second, self-contained root for anot
 | `OH_BUILD_ARGS` | Extra `build:artifacts` arguments, such as `--serial` |
 | `NARB_SRC`, `OH_OFFLINE_SOURCES=1` | Clone require-builtin from a local checkout; fail instead of cloning from GitHub |
 
-`sa-device-verify` runs the whole recipe for the `HEAD` of a checkout against the agent root, one step per call (`next`, plus `status`, `evidence`, `reset` and `--dry-run`), with caches under `~/.cache/dsh-sa-hmos` and the key-free env file `~/.config/dsh-sa/device.env`. It exits 0 when a step is done, 10 when all steps are done and the evidence is printed, 75 when the machine or the device is busy, 1 when a step failed, and 2 when a human is needed. It stops before deploying a commit that changes the device-side scripts until a human appends that commit to `~/.config/dsh-sa/recipe-approved`. `delta-check.sh <tag>` checks that a release-merge head carries the delta. The metrics are in [METRICS.md](METRICS.md) and the hazards in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
+A second root needs no env file for M1, M2, M3 and M6, which are keyless. `delta-check.sh <tag>` checks that an upstream-merge head carries the delta (skill `hmos-upstream-merge`). The metrics are in [METRICS.md](METRICS.md) and the hazards in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
 ## Constraints
 

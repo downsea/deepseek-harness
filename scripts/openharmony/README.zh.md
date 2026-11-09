@@ -33,13 +33,13 @@ $R/smoke.sh --m3 --m6 hmos
 
 ## brew 包
 
-PC 上的安装就是 harmonybrew 包。`pack-bottle.sh --payload-only` 组装该包要部署的 payload —— 即 `deploy.sh` 写到默认根的那份安装：`tree/`、`node/bin/node` 与 `bin/{oh-env.sh,dsh,dsh-web}` —— 所以包升级原地替换 `/data/storage/el2/base/dsh`，`~/.zshrc` 里的 PATH 块继续有效。formula 由发布工具 `hmos-brew-release`（`nan/dsh-superagent` 的 `tools/hmos`，ADR-0006）生成：它签名 payload、在设备上冒烟、把它打成 bottle 并渲染 `Formula/dsh.rb`；其 `post_install` 运行 payload 里的 `brew/deploy-payload.sh`，该脚本先校验排队的树（`oh/SHA256SUMS`，再从暂存副本跑 `dsh --version`），然后换入；根上有 dsh 在运行时拒绝执行。
+PC 上的安装就是 harmonybrew 包。`pack-bottle.sh --payload-only` 组装该包要部署的 payload —— 即 `deploy.sh` 写到默认根的那份安装：`tree/`、`node/bin/node` 与 `bin/{oh-env.sh,dsh,dsh-web}` —— 所以包升级原地替换 `/data/storage/el2/base/dsh`，`~/.zshrc` 里的 PATH 块继续有效。formula 由 `~/code/homebrew-hmos`（`scripts/`）里的发布引擎 `hmos-brew-release` 生成：它签名 payload、在设备上冒烟、把它打成 bottle 并渲染 `Formula/dsh.rb`；其 `post_install`（那边的 `packages/dsh/post_install/dsh-deploy.rb`）运行 payload 里的 `brew/deploy-payload.sh`，该脚本先校验排队的树（`oh/SHA256SUMS`，再从暂存副本跑 `dsh --version`），然后换入；根上有 dsh 在运行时拒绝执行。
 
 ```sh
 $R/pack-bottle.sh --payload-only $W/out/tree $W/node $W/bottle
 ```
 
-该命令写出 `$W/bottle/payload/` 并打印它。发布 Ticket 把该目录交给 `hmos-brew-release next --tree $W/bottle/payload --pr <已合并的 PR>`；bottle、`Formula/dsh.rb` 与 Gitea release 都由该工具写出，本仓没有写 tap 或 bottle 目录的代码路径。
+该命令写出 `$W/bottle/payload/` 并打印它。发布是维护者在 homebrew-hmos 里执行的 `scripts/hmos-bundle run dsh`：它在本 fork 已推送的 `master` 上运行配方，把 payload 交给引擎，由引擎在 `downsea/homebrew-hmos` 上写出 bottle、`Formula/dsh.rb` 与 GitHub release。本仓没有写 tap 或 bottle 目录的代码路径。
 
 在 PC 上：`brew update && brew install downsea/hmos/dsh`，之后用 `brew upgrade dsh`；然后 `dsh --version` 与 `dsh-web`。`ROOT` 覆盖启动器使用的部署根。
 
@@ -59,8 +59,7 @@ $R/pack-bottle.sh --payload-only $W/out/tree $W/node $W/bottle
 | `device-smoke.cjs` | 设备上的 M1：经各包自己的加载器加载每个原生插件，并要求映射的文件位于树内；经树内 `@vscode/ripgrep` 解析 `rg` 并运行一次 | 每项失败使退出码加一 |
 | `m6-terminal.mjs` | 设备上的 M6：经 `dsh-subprocess-local` 启动 `/bin/sh` 与 `/usr/bin/zsh` 终端，检查回显、resize 与关闭，并打印空闲时与 `sleep` 运行时的活动状态 | 每项失败使退出码加一 |
 | `m3-inspect.cjs` | 打印某个 dsh home 下最新会话日志中的工具调用与结果 | 没有会话日志 |
-| `sa-device-verify` | 针对一个提交在 agent 设备根上运行配方，每次调用一步，并打印证据 | 见第二设备根 |
-| `delta-check.sh <tag>` | 比较合入发布的 head 所带的本地改动与 `master` 上的本地改动 | 有路径或改动行不同且未列出 |
+| `delta-check.sh <tag>` | 比较合入上游发布的 head 所带的本地改动与 `master` 上的本地改动（skill `hmos-upstream-merge`） | 有路径或改动行不同且未列出 |
 
 ## 原生插件放置
 
@@ -96,7 +95,7 @@ $R/pack-bottle.sh --payload-only $W/out/tree $W/node $W/bottle
 
 ## 第二设备根
 
-非默认的 `DSH_OH_ROOT` 是给另一个属主用的、自成一体的第二设备根：Super-agent 在 `/data/storage/el2/base/dsh-sa`（属主 `superagent-dsh`）上验证发布，从不碰默认根。对第二设备根，`deploy.sh` 把 `tmp`、`home`、`agents` 与 Web 的 `documents` 都放在根下（`bin/root.patch.yml` 设置 documents 目录），让 `bin/oh-env.sh` 读入 `<root>/env` 而不是 `/data/storage/el2/base/.env.private`，只有该文件设置 `DSH_OH_WITH_OH=1` 时才加载 oh 的 `env.sh`，不改动 `~/.zshrc`，并且只在根下有进程运行时拒绝执行。首次部署写入 `<root>/.owner`；`DSH_OH_OWNER`（默认 `maintainer`）与之不符时，`deploy.sh`、`push-env.sh --root` 与 `smoke.sh` 都拒绝执行；默认根只接受 `maintainer`。
+非默认的 `DSH_OH_ROOT` 是给另一个属主或用途用的、自成一体的第二设备根。默认根归 harmonybrew 包所有之后，开发构建在第二设备根上验证，例如合入上游时用 `/data/storage/el2/base/dsh-dev`、属主 `nan`，已发布的安装保持不动。对第二设备根，`deploy.sh` 把 `tmp`、`home`、`agents` 与 Web 的 `documents` 都放在根下（`bin/root.patch.yml` 设置 documents 目录），让 `bin/oh-env.sh` 读入 `<root>/env` 而不是 `/data/storage/el2/base/.env.private`，只有该文件设置 `DSH_OH_WITH_OH=1` 时才加载 oh 的 `env.sh`，不改动 `~/.zshrc`，并且只在根下有进程运行时拒绝执行。首次部署写入 `<root>/.owner`；`DSH_OH_OWNER`（默认 `maintainer`）与之不符时，`deploy.sh`、`push-env.sh --root` 与 `smoke.sh` 都拒绝执行；默认根只接受 `maintainer`。
 
 | 变量或选项 | 作用 |
 |---|---|
@@ -107,7 +106,7 @@ $R/pack-bottle.sh --payload-only $W/out/tree $W/node $W/bottle
 | `OH_BUILD_ARGS` | 追加给 `build:artifacts` 的参数，例如 `--serial` |
 | `NARB_SRC`、`OH_OFFLINE_SOURCES=1` | 从本地 checkout 克隆 require-builtin；不从 GitHub 克隆，缺源码时直接失败 |
 
-`sa-device-verify` 针对某个 checkout 的 `HEAD`，在 agent 设备根上运行整条配方，每次调用只跑一步（`next`，另有 `status`、`evidence`、`reset` 与 `--dry-run`），缓存放在 `~/.cache/dsh-sa-hmos`，使用不含 key 的环境文件 `~/.config/dsh-sa/device.env`。一步完成时退出码为 0，全部完成并打印证据时为 10，构建机或设备忙时为 75，某步失败时为 1，需要人介入时为 2。提交改动了设备侧脚本时，它在部署前停下，直到有人把该提交追加到 `~/.config/dsh-sa/recipe-approved`。`delta-check.sh <tag>` 检查合入发布的 head 是否带上了本地改动。指标见 [METRICS.md](METRICS.md)，隐患见 [KNOWN-ISSUES.md](KNOWN-ISSUES.md)。
+M1、M2、M3 与 M6 不需要 key，所以第二设备根不需要环境文件。`delta-check.sh <tag>` 检查合入上游发布的 head 是否带上了本地改动（skill `hmos-upstream-merge`）。指标见 [METRICS.md](METRICS.md)，隐患见 [KNOWN-ISSUES.md](KNOWN-ISSUES.md)。
 
 ## 约束
 
