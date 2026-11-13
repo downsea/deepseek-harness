@@ -639,7 +639,8 @@ else
     gate "test-${p##*/}" "pnpm exec vitest run $p --coverage --coverage.include='$p/src/**/*.ts'" "test -d $p"
   done
   if git diff --quiet "refs/tags/$TAG" HEAD -- native/system; then :; else
-    gate native-system 'cd native/system && node --test ./test/flock.test.js ./test/package-matrix.test.js ./test/release-packing.test.js'
+    # The flock tests need the C oracle; its script builds glibc first and then fails without musl-gcc (oh-vm).
+    gate native-system 'cd native/system && { node ./scripts/build-test-oracle.mjs || true; } && node --test ./test/flock.test.js ./test/package-matrix.test.js ./test/release-packing.test.js'
   fi
   gate doc-sync 'NODE_OPTIONS=--max-old-space-size=4096 DSH_GATE_CONCURRENCY=1 pnpm run doc-sync'
   gate docs-gate 'python3 scripts/docs-gate.py' 'test -f scripts/docs-gate.py'

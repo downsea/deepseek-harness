@@ -68,6 +68,7 @@ On the range from the previous merge base (`dsh-v0.2.1-rc.3` + 1533 commits) to 
 | `doc-sync`: `documentation build` / `doc graphs` exit 134 | V8 heap abort with the default heap on this machine (rc.2 merge, 9.2 GB peak) | `NODE_OPTIONS=--max-old-space-size=4096 DSH_GATE_CONCURRENCY=1 pnpm run doc-sync` |
 | session-persistence-jsonl: ~370 failures in a fresh worktree | `--ignore-scripts` skipped the host flock addon | `pnpm run build:native-system` (`build.ts --host-addon-only`) after the install |
 | `node --test` in `native/system` fails | the bare form picks up `test/fixtures/` and needs a musl `landlock-run` | `node --test ./test/flock.test.js ./test/package-matrix.test.js ./test/release-packing.test.js` |
+| four flock tests: `spawn …/test/bin/glibc/flock-oracle ENOENT` | a fresh worktree has no C flock oracle | `node ./scripts/build-test-oracle.mjs` in `native/system` first (its musl variant fails without `musl-gcc`; the glibc one is what oh-vm uses) |
 | Committing the merge takes minutes and rewrites upstream files | lefthook pre-commit lints and fixes every staged path of the range | `LEFTHOOK=0` for the merge commit only; later commits run the hooks |
 | Coverage / Windows-path reds in subprocess-local and bash-local (rc.2) | upstream: red on the pristine tag too | `upstream-merge.sh` compares the failures with the pristine tag's; only a failure the tag lacks is an adaptation |
 | The first push of a merge takes ~15 min | the fork receives the range's upstream objects (rc.2: 1568 commits) | expected; the pre-push typecheck is ~1 min of it |
