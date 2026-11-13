@@ -57,10 +57,12 @@ Regression anchors, not targets. Durations are wall clock on a shared machine.
 | `build-natives.sh` | < 1 min of compiling + rg 53 s (3 cores); once waited ~8 min for another session's cargo slot |
 | `make-node.sh` | 5 s; node sha256 identical on VM and device (`e11de9ce…`), `.permission` unchanged by signing |
 | `pack-tree.sh` | 7 min 54 s total; `build:artifacts --profile official` 248 s cold, 51–69 s warm (before upstream #7435 raised typecheck heaps to 8 GiB) |
-| Tree | 952–968 MB, ~373 dependencies; ELF sweep keeps 5 signed, removes 4 unsigned |
+| Tree | 952–968 MB, ~373 dependencies (epic 016); 1.2–1.3 G from `dsh-v0.2.2-rc.2`; ELF sweep keeps 5 signed, removes 4 unsigned |
 | `deploy.sh` | 1 min 48 s – 4 min 23 s (`tar \| ssh` over the bridge); `sha256sum -c` 5/5 |
 | M1 | 5/5 (+ rg 15.0.0, PCRE2 JIT available) |
 | M2 | exit 0 in 6–8 s, 29 stdout lines, 0 stderr lines |
 | M3 | 26–28 s for `smoke.sh --m3` |
 | M6 | `smoke.sh --m3 --m6` 1 min 20 s; web start 13 s; `GET /` 39 131 B, title "DeepSeek Harness" |
 | Chain, warm caches, no waits | ≈ 12–17 min |
+
+Upstream merge `dsh-v0.2.2-rc.1` → `rc.2` (2026-11-13, 1568 upstream commits, 34 delta commits; homebrew-hmos research `2026-11-13-dsh-merge-automation.md`): ≈ 63 min by hand. `pnpm install` 41 s (4.7 GB peak) · typecheck 340 s (8.7 GB) · changed-path lint 14 s (5.8 GB) · vitest per HMOS package 6–28 s (3.7–4.9 GB) · `doc-sync` with the 4 GiB heap 7 min · `build-natives.sh` 103 s · `pack-tree.sh --serial` 688 s (5.6 GB) · `deploy.sh` 52 s · `smoke.sh --m3 --m6` 47 s · push 16 min (upstream objects). The judgment part was ≈ 10 min; `upstream-merge.sh` runs the rest.
