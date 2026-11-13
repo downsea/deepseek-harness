@@ -264,10 +264,13 @@ mem-cli issue, not a contract violation. Revisit at the first tagged release.
 
 ## Current project state
 
-- **master = upstream `dsh-v0.2.2-rc.1` + the HMOS delta** (merged
-  2026-11-04; `origin/master` fast-forwarded to it from the fork's previous `master` on
-  2026-11-09). The PC runs it as the harmonybrew package `dsh 0.2.2-rc.1`, released by
-  homebrew-hmos `hmos-bundle`. `master` now advances by merging upstream tags, no longer
+- **master = the newest merged upstream `dsh-v*` tag + the HMOS delta.** Which tag is
+  git's fact, not this file's (`git describe --tags --abbrev=0 --match 'dsh-v*' origin/master`;
+  the `merge(hmos)` commit body is the record), so a merge never edits this file — it is in
+  the delta's path set and an edit on the merge branch fails `delta-check.sh`; other bullets
+  here change in their own `chore(local)` commit on `master`. Merges run through
+  `scripts/openharmony/upstream-merge.sh` (skill hmos-upstream-merge); what the PC runs is
+  homebrew-hmos's (`hmos-bundle check`). `master` advances by merging upstream tags, no longer
   by rebasing; the sandbox `writablePaths` change (issue 001) was dropped at the
   2026-10-24 rebase, and
   `backup/master-pre-0.2.1` (local only) and `backup/master-pre-rc7` keep earlier lines.
