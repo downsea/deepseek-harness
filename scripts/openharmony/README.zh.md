@@ -60,6 +60,7 @@ $R/pack-bottle.sh --payload-only $W/out/tree $W/node $W/bottle
 | `m6-terminal.mjs` | 设备上的 M6：经 `dsh-subprocess-local` 启动 `/bin/sh` 与 `/usr/bin/zsh` 终端，检查回显、resize 与关闭，并打印空闲时与 `sleep` 运行时的活动状态 | 每项失败使退出码加一 |
 | `m3-inspect.cjs` | 打印某个 dsh home 下最新会话日志中的工具调用与结果 | 没有会话日志 |
 | `delta-check.sh <tag>` | 比较合入上游发布的 head 所带的本地改动与 `master` 上的本地改动（skill `hmos-upstream-merge`） | 有路径或改动行不同且未列出 |
+| `upstream-merge.sh [--no-push] [--base <ref>] <tag>` | skill `hmos-upstream-merge` 的机械部分：校验 tag，等机器空闲，审查上游区间，在 `~/.cache/dsh-merge-<tag>` 里按固定冲突规则合入，运行 `delta-check.sh`、各项门禁与本配方（第二设备根 `DSH_OH_ROOT`，默认 `dsh-dev`），快进推送 `master` 并写报告；再次运行时在保留的 worktree 里续做 | 需要 agent 或人来决定时退出 2（保留 worktree），工具失败时退出 1，机器一直忙时退出 75 |
 
 ## 原生插件放置
 
@@ -80,10 +81,10 @@ $R/pack-bottle.sh --payload-only $W/out/tree $W/node $W/bottle
 |---|---|---|
 | `TMPDIR` | `/data/storage/el2/base/tmp` | `/tmp` 可写，但不能执行、不能 `dlopen`、不能绑定 UNIX socket |
 | `NARB_DISABLE_NATIVE_CACHE` | `1` | 否则加载器会先把 `.node` 文件复制到临时目录再加载 |
-| `SHELL` | `/bin/sh` | 沙箱没有 bash，也没有 passwd 条目，`os.userInfo()` 会抛错 |
+| `SHELL` | `/usr/bin/zsh` | 沙箱没有 bash，也没有 passwd 条目，`os.userInfo()` 会抛错；HiShell 以 zsh 登录 |
 | `DSH_HOME` / `DSH_AGENTS_HOME` | `/data/storage/el2/base/dsh-home` / `dsh-agents`（默认值） | home 目录不能建硬链接，`0600` 读回为 `0640` |
 
-`openharmony.patch.yml` 把 bash 工具的 `shellPath` 设为 `/bin/sh`，因为设备的 `/bin/sh` 是 mksh，没有 bash。它还把 Web 工作区控制器的 `documentsDirectory` 设为 `/data/storage/el2/base/dsh-documents`，因为该控制器只在 macOS、Windows 与 Linux 上查找 Documents 目录；没有这一行的 profile 忽略它。
+`openharmony.patch.yml` 把 bash 工具的 `shellPath` 设为 HiShell 的登录 shell `/usr/bin/zsh`，因为设备没有 bash，`/bin/sh` 是 mksh。它还把 Web 工作区控制器的 `documentsDirectory` 设为 `/data/storage/el2/base/dsh-documents`，因为该控制器只在 macOS、Windows 与 Linux 上查找 Documents 目录；没有这一行的 profile 忽略它。
 
 ## M3 回放
 

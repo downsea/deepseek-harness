@@ -60,6 +60,7 @@ On the PC: `brew update && brew install downsea/hmos/dsh`, later `brew upgrade d
 | `m6-terminal.mjs` | M6 on the device: spawns `/bin/sh` and `/usr/bin/zsh` terminals through `dsh-subprocess-local`, checks echo, resize and close, and prints the activity state while idle and while `sleep` runs | Each failed check adds one to the exit status |
 | `m3-inspect.cjs` | Prints the tool calls and results of the newest session log under a dsh home | No session log exists |
 | `delta-check.sh <tag>` | Compares the delta an upstream-merge head carries with the delta on `master` (skill `hmos-upstream-merge`) | A path or changed line differs and is not listed |
+| `upstream-merge.sh [--no-push] [--base <ref>] <tag>` | The mechanical part of skill `hmos-upstream-merge`: verifies the tag, waits for a free machine, reviews the range, merges in `~/.cache/dsh-merge-<tag>` with the fixed conflict rules, runs `delta-check.sh`, the gates and this recipe on a second root (`DSH_OH_ROOT`, default `dsh-dev`), pushes `master` fast-forward, and writes a report; a re-run resumes in the kept worktree | Exits 2 when an agent or a human must decide (worktree kept), 1 when a tool fails, 75 while the machine stays busy |
 
 ## Addon placement
 
@@ -80,10 +81,10 @@ On the PC: `brew update && brew install downsea/hmos/dsh`, later `brew upgrade d
 |---|---|---|
 | `TMPDIR` | `/data/storage/el2/base/tmp` | `/tmp` is writable but cannot execute, `dlopen`, or bind a UNIX socket |
 | `NARB_DISABLE_NATIVE_CACHE` | `1` | The loader otherwise copies `.node` files into the temporary directory before loading them |
-| `SHELL` | `/bin/sh` | The sandbox has no bash and no passwd entry, so `os.userInfo()` throws |
+| `SHELL` | `/usr/bin/zsh` | The sandbox has no bash and no passwd entry, so `os.userInfo()` throws; HiShell logs in with zsh |
 | `DSH_HOME` / `DSH_AGENTS_HOME` | `/data/storage/el2/base/dsh-home` / `dsh-agents` (defaults) | Home directories cannot hold hard links and read `0600` back as `0640` |
 
-`openharmony.patch.yml` sets the bash tool's `shellPath` to `/bin/sh`, because the device has mksh at `/bin/sh` and no bash. It also sets the Web workspace controller's `documentsDirectory` to `/data/storage/el2/base/dsh-documents`, because the controller looks up the Documents directory only on macOS, Windows and Linux; profiles without that row ignore it.
+`openharmony.patch.yml` sets the bash tool's `shellPath` to `/usr/bin/zsh`, HiShell's login shell, because the device has no bash and `/bin/sh` is mksh. It also sets the Web workspace controller's `documentsDirectory` to `/data/storage/el2/base/dsh-documents`, because the controller looks up the Documents directory only on macOS, Windows and Linux; profiles without that row ignore it.
 
 ## M3 replay
 
